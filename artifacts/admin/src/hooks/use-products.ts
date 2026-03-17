@@ -4,11 +4,11 @@ import { z } from "zod";
 export const productSchema = z.object({
   id: z.number().optional(),
   name: z.string().min(1, "Name is required"),
-  description: z.string().min(1, "Description is required"),
+  description: z.string().optional().nullable(),
   price: z.coerce.number().min(0),
   originalPrice: z.coerce.number().optional().nullable(),
   category: z.string().min(1, "Category is required"),
-  imageUrl: z.string().url("Must be a valid URL"),
+  imageUrl: z.string().optional().nullable(),
   stock: z.coerce.number().int().min(0),
   rating: z.coerce.number().optional().default(0),
   isFeatured: z.boolean().optional().default(false),

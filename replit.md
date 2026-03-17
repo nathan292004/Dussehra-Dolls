@@ -23,6 +23,7 @@ Dussehra Dolls — a full-stack e-commerce + chit savings platform for selling f
 artifacts-monorepo/
 ├── artifacts/              # Deployable applications
 │   ├── api-server/         # Express API server
+│   ├── admin/              # React+Vite admin portal (at /admin/)
 │   └── mobile/             # Expo React Native mobile app
 ├── lib/                    # Shared libraries
 │   ├── api-spec/           # OpenAPI spec + Orval codegen config
@@ -46,6 +47,12 @@ artifacts-monorepo/
 - **Chit Plans**: Join savings chit groups, view enrollments
 - **Wallet**: Check balance, add funds, view transactions
 - **Profile**: User account, sign in/register, logout
+
+### Admin Portal (`artifacts/admin`) — at `/admin/`
+- **Dashboard** — Stats cards (total orders, revenue, active products, low stock alerts), recent orders table, quick action links
+- **Inventory Management** — Full product table with images, stock levels (red warning if < 5 units), Featured badges. Add new products via modal form, edit any product details/stock inline, delete products with confirmation
+- **Order Management** — All customer orders in a filterable table (filter by status: pending/confirmed/processing/shipped/delivered/cancelled). Status dropdown to update order stage. Click to expand row for full order items, shipping address, and payment info
+- Changes made in the admin portal write directly to the shared PostgreSQL database, so the customer mobile app instantly sees updated product info, stock levels, and order statuses
 
 ### API Server (`artifacts/api-server`)
 - `GET/POST /api/auth/register` — User registration

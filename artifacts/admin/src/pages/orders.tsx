@@ -3,7 +3,7 @@ import { useOrders, useUpdateOrderStatus } from "@/hooks/use-orders";
 import { formatCurrency } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
-import { ChevronDown, ChevronUp, MapPin, CreditCard } from "lucide-react";
+import { ChevronDown, ChevronUp, MapPin, CreditCard, Package } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export function Orders() {
