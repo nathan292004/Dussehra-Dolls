@@ -5,7 +5,10 @@
  * Dussehra Dolls API
  * OpenAPI spec version: 0.1.0
  */
+import type { CartItem } from "./cartItem";
 
-export interface HealthStatus {
-  status: string;
+export interface Cart {
+  items: CartItem[];
+  total: number;
+  itemCount: number;
 }
