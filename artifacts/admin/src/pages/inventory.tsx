@@ -4,7 +4,7 @@ import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
-import { Plus, Edit2, Trash2, Search, Star, AlertCircle } from "lucide-react";
+import { Plus, Edit2, Trash2, Search, Star, AlertCircle, Package } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { productSchema } from "@/hooks/use-products";
