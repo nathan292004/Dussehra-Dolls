@@ -12,8 +12,9 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, phone: string, password: string) => Promise<void>;
+  login: (phone: string, password: string) => Promise<void>;
+  register: (name: string, phone: string, password: string, otp: string) => Promise<void>;
+  sendOtp: (phone: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -43,11 +44,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const sendOtp = async (phone: string) => {
+    const res = await fetch(`${API_BASE}/auth/send-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || "Failed to send OTP");
+    }
+  };
+
+  const login = async (phone: string, password: string) => {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ phone, password }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -60,11 +73,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data.user);
   };
 
-  const register = async (name: string, email: string, phone: string, password: string) => {
+  const register = async (name: string, phone: string, password: string, otp: string) => {
     const res = await fetch(`${API_BASE}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, phone, password }),
+      body: JSON.stringify({ name, phone, password, otp }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -85,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, register, sendOtp, logout }}>
       {children}
     </AuthContext.Provider>
   );
