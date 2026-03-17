@@ -1,41 +1,35 @@
-import twilio from "twilio";
+export async function sendSms(to: string, body: string) {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_PHONE_NUMBER;
 
-async function getCredentials() {
-  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  const xReplitToken = process.env.REPL_IDENTITY
-    ? "repl " + process.env.REPL_IDENTITY
-    : process.env.WEB_REPL_RENEWAL
-    ? "depl " + process.env.WEB_REPL_RENEWAL
-    : null;
-
-  if (!xReplitToken) throw new Error("X-Replit-Token not found");
-
-  const data = await fetch(
-    `https://${hostname}/api/v2/connection?include_secrets=true&connector_names=twilio`,
-    {
-      headers: {
-        Accept: "application/json",
-        "X-Replit-Token": xReplitToken,
-      },
-    }
-  )
-    .then((r) => r.json())
-    .then((d) => d.items?.[0]);
-
-  if (!data?.settings?.account_sid || !data?.settings?.api_key || !data?.settings?.api_key_secret) {
-    throw new Error("Twilio not connected");
+  if (!accountSid || !authToken || !from) {
+    throw new Error(
+      "Twilio credentials not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER environment variables."
+    );
   }
 
-  return {
-    accountSid: data.settings.account_sid as string,
-    apiKey: data.settings.api_key as string,
-    apiKeySecret: data.settings.api_key_secret as string,
-    phoneNumber: data.settings.phone_number as string,
-  };
-}
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+  const basicAuth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 
-export async function sendSms(to: string, body: string) {
-  const { accountSid, apiKey, apiKeySecret, phoneNumber } = await getCredentials();
-  const client = twilio(apiKey, apiKeySecret, { accountSid });
-  return client.messages.create({ to, from: phoneNumber, body });
+  console.log(`[Twilio] Sending OTP SMS to ${to} from ${from}`);
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${basicAuth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
+  });
+
+  const result = (await res.json()) as Record<string, unknown>;
+
+  if (!res.ok) {
+    console.error("[Twilio] API error:", JSON.stringify(result));
+    throw new Error((result.message as string) || `Twilio API error ${res.status}`);
+  }
+
+  console.log("[Twilio] SMS sent, SID:", result.sid);
+  return result;
 }
