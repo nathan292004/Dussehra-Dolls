@@ -1,0 +1,18 @@
+packages:
+  "framer-motion": "For premium page transitions, modal animations, and staggered list reveals"
+  "date-fns": "For elegant date formatting in the orders and dashboard tables"
+  "react-hook-form": "For robust state management and validation in product creation/editing forms"
+  "@hookform/resolvers": "To integrate Zod validation seamlessly with react-hook-form"
+  "recharts": "For displaying a beautiful revenue or order trend chart on the dashboard"
+  "clsx": "For conditional class name merging in reusable UI components"
+  "tailwind-merge": "To resolve Tailwind class conflicts in customized components"
+
+images:
+  - path: "artifacts/admin/public/images/logo.png"
+    description: "A minimal, premium line-art logo for 'Dussehra Dolls', featuring a stylized traditional Indian doll motif. Use elegant terracotta and gold colors on a fully transparent background. Suitable for a high-end admin dashboard sidebar."
+    aspect_ratio: "1:1"
+
+notes:
+  - Assuming REST API endpoints are mounted at `/api/admin/*` for all admin operations.
+  - Assuming API handles JSON bodies for POST/PUT and returns standard JSON responses.
+  - Assuming authentication is handled via cookies or session transparently, as no specific admin auth token workflow was specified.

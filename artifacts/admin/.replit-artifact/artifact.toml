@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/admin/"
+title = "Dussehra Dolls Admin"
+version = "1.0.0"
+id = "artifacts/admin"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+localPort = 23744
+name = "web"
+paths = ["/admin/"]
+
+[services.development]
+run = "pnpm --filter @workspace/admin run dev"
+
+[services.env]
+PORT = "23744"
+BASE_PATH = "/admin/"
+
+[services.production]
+build = ["pnpm", "--filter", "@workspace/admin", "run", "build"]
+publicDir = "artifacts/admin/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
