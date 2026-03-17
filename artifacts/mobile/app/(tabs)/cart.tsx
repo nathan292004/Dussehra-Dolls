@@ -148,7 +148,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.light.background },
   pageTitle: {
     fontSize: 26,
-    fontFamily: "Inter_700Bold",
     color: Colors.light.text,
     paddingHorizontal: 16,
     paddingBottom: 16,
@@ -174,9 +173,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   itemInfo: { flex: 1, padding: 12, gap: 3 },
-  itemName: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: Colors.light.text },
-  itemCategory: { fontSize: 11, fontFamily: "Inter_400Regular", color: Colors.light.tint },
-  itemPrice: { fontSize: 15, fontFamily: "Inter_700Bold", color: Colors.light.text },
+  itemName: { fontSize: 13, color: Colors.light.text },
+  itemCategory: { fontSize: 11, color: Colors.light.tint },
+  itemPrice: { fontSize: 15, color: Colors.light.text },
   itemActions: {
     padding: 12,
     alignItems: "flex-end",
@@ -206,8 +205,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 8,
   },
-  qty: { fontSize: 14, fontFamily: "Inter_700Bold", color: Colors.light.text, minWidth: 20, textAlign: "center" },
-  subtotal: { fontSize: 14, fontFamily: "Inter_700Bold", color: Colors.light.tint },
+  qty: { fontSize: 14, color: Colors.light.text, minWidth: 20, textAlign: "center" },
+  subtotal: { fontSize: 14, color: Colors.light.tint },
   footer: {
     position: "absolute",
     bottom: 0,
@@ -220,8 +219,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   totalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  totalLabel: { fontSize: 15, fontFamily: "Inter_500Medium", color: Colors.light.textSecondary },
-  totalAmount: { fontSize: 22, fontFamily: "Inter_700Bold", color: Colors.light.text },
+  totalLabel: { fontSize: 15, color: Colors.light.textSecondary },
+  totalAmount: { fontSize: 22, color: Colors.light.text },
   checkoutBtn: {
     backgroundColor: Colors.light.tint,
     borderRadius: 14,
@@ -231,10 +230,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
   },
-  checkoutText: { fontSize: 16, fontFamily: "Inter_700Bold", color: "#fff" },
+  checkoutText: { fontSize: 16, color: "#fff" },
   emptyState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingBottom: 100 },
-  emptyTitle: { fontSize: 20, fontFamily: "Inter_700Bold", color: Colors.light.text },
-  emptySubtitle: { fontSize: 14, fontFamily: "Inter_400Regular", color: Colors.light.textMuted, textAlign: "center" },
+  emptyTitle: { fontSize: 20, color: Colors.light.text },
+  emptySubtitle: { fontSize: 14, color: Colors.light.textMuted, textAlign: "center" },
   loginBtn: {
     backgroundColor: Colors.light.tint,
     borderRadius: 12,
@@ -242,5 +241,5 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     marginTop: 8,
   },
-  loginBtnText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#fff" },
+  loginBtnText: { fontSize: 15, color: "#fff" },
 });

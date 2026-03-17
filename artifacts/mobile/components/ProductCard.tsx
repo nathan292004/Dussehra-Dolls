@@ -131,7 +131,6 @@ const styles = StyleSheet.create({
   discountText: {
     color: "#fff",
     fontSize: 10,
-    fontFamily: "Inter_700Bold",
   },
   featuredBadge: {
     position: "absolute",
@@ -150,14 +149,12 @@ const styles = StyleSheet.create({
   },
   category: {
     fontSize: 10,
-    fontFamily: "Inter_500Medium",
     color: Colors.light.tint,
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   name: {
     fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
     color: Colors.light.text,
     lineHeight: 18,
   },
@@ -168,12 +165,10 @@ const styles = StyleSheet.create({
   },
   rating: {
     fontSize: 11,
-    fontFamily: "Inter_600SemiBold",
     color: Colors.light.textSecondary,
   },
   reviewCount: {
     fontSize: 11,
-    fontFamily: "Inter_400Regular",
     color: Colors.light.textMuted,
   },
   priceRow: {
@@ -184,12 +179,10 @@ const styles = StyleSheet.create({
   },
   price: {
     fontSize: 16,
-    fontFamily: "Inter_700Bold",
     color: Colors.light.text,
   },
   originalPrice: {
     fontSize: 12,
-    fontFamily: "Inter_400Regular",
     color: Colors.light.textMuted,
     textDecorationLine: "line-through",
   },
@@ -203,7 +196,6 @@ const styles = StyleSheet.create({
   },
   outOfStock: {
     fontSize: 11,
-    fontFamily: "Inter_500Medium",
     color: Colors.light.error,
   },
 });
