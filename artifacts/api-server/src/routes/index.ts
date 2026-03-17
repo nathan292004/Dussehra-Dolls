@@ -6,6 +6,7 @@ import cartRouter from "./cart";
 import ordersRouter from "./orders";
 import chitsRouter from "./chits";
 import walletRouter from "./wallet";
+import adminRouter from "./admin";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use("/cart", cartRouter);
 router.use("/orders", ordersRouter);
 router.use("/chits", chitsRouter);
 router.use("/wallet", walletRouter);
+router.use("/admin", adminRouter);
 
 export default router;
