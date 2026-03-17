@@ -6,8 +6,12 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
+  Modal,
+  TextInput,
   Platform,
+  KeyboardAvoidingView,
 } from "react-native";
+import Slider from "@react-native-community/slider";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
@@ -15,45 +19,67 @@ import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { useAuth, getApiBase } from "@/context/auth";
 
-interface ChitPlan {
-  id: number;
-  name: string;
-  description?: string;
-  totalAmount: number;
-  monthlyContribution: number;
-  duration: number;
-  members: number;
-  maxMembers: number;
-  startDate?: string;
-  status: string;
-}
+const DEADLINE = new Date(2026, 9, 1); // October 2026
 
-interface ChitEnrollment {
+const PRESET_PLANS = [
+  { amount: 5000, icon: "business-outline" as const, iconLib: "ion" },
+  { amount: 10000, icon: "card-outline" as const, iconLib: "ion" },
+  { amount: 15000, icon: "piggy-bank" as const, iconLib: "mci" },
+];
+
+interface MyChitEnrollment {
   id: number;
-  chitPlan: ChitPlan;
+  chitPlan: {
+    id: number;
+    name: string;
+    totalAmount: number;
+    monthlyContribution: number;
+    duration: number;
+  };
   joinedAt: string;
   amountPaid: number;
   nextPaymentDate?: string;
   status: string;
 }
 
+function calcMaxMonths() {
+  const now = new Date();
+  const diff = Math.floor((DEADLINE.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 30));
+  return Math.max(1, Math.min(24, diff));
+}
+
+function formatAmount(n: number) {
+  return "₹" + n.toLocaleString("en-IN");
+}
+
+function getPlanEndDate(months: number) {
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
+
 export default function ChitsScreen() {
   const insets = useSafeAreaInsets();
   const { user, token } = useAuth();
-  const [plans, setPlans] = useState<ChitPlan[]>([]);
-  const [myChits, setMyChits] = useState<ChitEnrollment[]>([]);
+  const [myChits, setMyChits] = useState<MyChitEnrollment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [tab, setTab] = useState<"browse" | "mine">("browse");
-  const [joining, setJoining] = useState<number | null>(null);
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const fetchPlans = useCallback(async () => {
-    try {
-      const res = await fetch(`${getApiBase()}/chits`);
-      if (res.ok) setPlans(await res.json());
-    } catch { /* ignore */ }
-  }, []);
+  // Duration modal
+  const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
+  const [duration, setDuration] = useState(3);
+  const [showDurationModal, setShowDurationModal] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
+  const [enrollError, setEnrollError] = useState("");
+
+  // Custom amount modal
+  const [showCustomModal, setShowCustomModal] = useState(false);
+  const [customAmountText, setCustomAmountText] = useState("");
+  const [customError, setCustomError] = useState("");
+
+  const maxMonths = calcMaxMonths();
 
   const fetchMyChits = useCallback(async () => {
     if (!token) return;
@@ -66,30 +92,60 @@ export default function ChitsScreen() {
   }, [token]);
 
   useEffect(() => {
-    Promise.all([fetchPlans(), fetchMyChits()]).finally(() => setIsLoading(false));
-  }, [fetchPlans, fetchMyChits]);
+    fetchMyChits().finally(() => setIsLoading(false));
+  }, [fetchMyChits]);
 
-  const joinChit = async (chitPlanId: number) => {
+  const openDurationModal = (amount: number) => {
+    setSelectedAmount(amount);
+    setDuration(Math.min(3, maxMonths));
+    setEnrollError("");
+    setShowDurationModal(true);
+    Haptics.selectionAsync();
+  };
+
+  const handleCustomContinue = () => {
+    const v = parseFloat(customAmountText.replace(/,/g, ""));
+    if (isNaN(v) || v < 1000) {
+      setCustomError("Minimum amount is ₹1,000");
+      return;
+    }
+    setCustomError("");
+    setShowCustomModal(false);
+    setCustomAmountText("");
+    openDurationModal(v);
+  };
+
+  const handleEnroll = async () => {
     if (!user) { router.push("/auth"); return; }
-    setJoining(chitPlanId);
+    if (!selectedAmount) return;
+    setEnrolling(true);
+    setEnrollError("");
     try {
-      const res = await fetch(`${getApiBase()}/chits`, {
+      const res = await fetch(`${getApiBase()}/chits/enroll-custom`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ chitPlanId }),
+        body: JSON.stringify({ amount: selectedAmount, durationMonths: duration }),
       });
-      if (res.ok) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        await fetchMyChits();
-        await fetchPlans();
-        setTab("mine");
+      if (!res.ok) {
+        const err = await res.json();
+        setEnrollError(err.error || "Enrollment failed");
+        return;
       }
-    } catch { /* ignore */ } finally {
-      setJoining(null);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowDurationModal(false);
+      await fetchMyChits();
+      setTab("mine");
+    } catch {
+      setEnrollError("Something went wrong");
+    } finally {
+      setEnrolling(false);
     }
   };
 
-  const isEnrolled = (planId: number) => myChits.some(e => e.chitPlan.id === planId);
+  const emi = selectedAmount ? selectedAmount / duration : 0;
+  const planEndDate = getPlanEndDate(duration);
+  const isOverDeadline = planEndDate > DEADLINE;
+  const endDateStr = planEndDate.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 
   if (isLoading) {
     return (
@@ -101,16 +157,12 @@ export default function ChitsScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
+      {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Chit Savings</Text>
-          <Text style={styles.subtitle}>Save together, prosper together</Text>
-        </View>
-        <View style={styles.savingsIcon}>
-          <MaterialCommunityIcons name="piggy-bank" size={28} color={Colors.light.tint} />
-        </View>
+        <Text style={styles.title}>Chit Plans</Text>
       </View>
 
+      {/* Tabs */}
       <View style={styles.tabs}>
         <Pressable
           style={[styles.tab, tab === "browse" && styles.tabActive]}
@@ -124,132 +176,110 @@ export default function ChitsScreen() {
         >
           <Text style={[styles.tabText, tab === "mine" && styles.tabTextActive]}>My Chits</Text>
           {myChits.length > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{myChits.length}</Text>
-            </View>
+            <View style={styles.badge}><Text style={styles.badgeText}>{myChits.length}</Text></View>
           )}
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 90 }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 100 }]}>
         {tab === "browse" ? (
-          plans.length === 0 ? (
-            <View style={styles.empty}>
-              <MaterialCommunityIcons name="piggy-bank-outline" size={64} color={Colors.light.border} />
-              <Text style={styles.emptyText}>No chit plans available</Text>
-              <Text style={styles.emptySubtext}>Check back soon for new savings opportunities</Text>
+          <>
+            {/* Info box */}
+            <View style={styles.infoBox}>
+              <View style={styles.infoTitle}>
+                <Ionicons name="information-circle-outline" size={18} color="#1a6fd4" />
+                <Text style={styles.infoTitleText}>How Chit Plans Work</Text>
+              </View>
+              {[
+                "Choose a plan amount and duration",
+                "Pay monthly installments (EMI)",
+                "Each payment adds to your wallet",
+                "Complete all payments to get a discount reward",
+                "You can pay more than EMI to finish early",
+              ].map((line, i) => (
+                <Text key={i} style={styles.infoLine}>• {line}</Text>
+              ))}
             </View>
-          ) : (
-            plans.map(plan => (
-              <View key={plan.id} style={styles.planCard}>
-                <View style={[styles.planHeader, { backgroundColor: plan.status === "active" ? Colors.light.tintDark : Colors.light.tint }]}>
-                  <View>
-                    <Text style={styles.planName}>{plan.name}</Text>
-                    <View style={styles.statusRow}>
-                      <View style={styles.statusDot} />
-                      <Text style={styles.planStatus}>{plan.status.charAt(0).toUpperCase() + plan.status.slice(1)}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.planAmountBadge}>
-                    <Text style={styles.planAmountLabel}>Pool</Text>
-                    <Text style={styles.planAmountValue}>₹{(plan.totalAmount / 1000).toFixed(0)}K</Text>
-                  </View>
-                </View>
-                <View style={styles.planBody}>
-                  {plan.description && <Text style={styles.planDesc}>{plan.description}</Text>}
-                  <View style={styles.planStats}>
-                    <View style={styles.stat}>
-                      <Ionicons name="calendar-outline" size={16} color={Colors.light.tint} />
-                      <Text style={styles.statLabel}>Duration</Text>
-                      <Text style={styles.statValue}>{plan.duration} months</Text>
-                    </View>
-                    <View style={styles.stat}>
-                      <Ionicons name="people-outline" size={16} color={Colors.light.tint} />
-                      <Text style={styles.statLabel}>Members</Text>
-                      <Text style={styles.statValue}>{plan.members}/{plan.maxMembers}</Text>
-                    </View>
-                    <View style={styles.stat}>
-                      <Ionicons name="wallet-outline" size={16} color={Colors.light.tint} />
-                      <Text style={styles.statLabel}>Monthly</Text>
-                      <Text style={styles.statValue}>₹{plan.monthlyContribution.toFixed(0)}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.progressBarBg}>
-                    <View style={[styles.progressBar, { width: `${(plan.members / plan.maxMembers) * 100}%` as any }]} />
-                  </View>
-                  <Text style={styles.progressText}>{plan.maxMembers - plan.members} spots remaining</Text>
 
-                  {isEnrolled(plan.id) ? (
-                    <View style={styles.enrolledBadge}>
-                      <Ionicons name="checkmark-circle" size={18} color={Colors.light.success} />
-                      <Text style={styles.enrolledText}>Enrolled</Text>
-                    </View>
+            <Text style={styles.sectionLabel}>Select Chit Plan</Text>
+
+            {/* Preset plans */}
+            {PRESET_PLANS.map(({ amount, icon, iconLib }) => (
+              <Pressable key={amount} style={styles.planRow} onPress={() => openDurationModal(amount)}>
+                <View style={styles.planIconBox}>
+                  {iconLib === "ion" ? (
+                    <Ionicons name={icon as any} size={22} color={Colors.light.tint} />
                   ) : (
-                    <Pressable
-                      style={[styles.joinBtn, (plan.status !== "open" || plan.members >= plan.maxMembers) && styles.joinBtnDisabled]}
-                      onPress={() => joinChit(plan.id)}
-                      disabled={plan.status !== "open" || plan.members >= plan.maxMembers || joining === plan.id}
-                    >
-                      {joining === plan.id ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <Text style={styles.joinBtnText}>
-                          {plan.status !== "open" ? "Not Open" : plan.members >= plan.maxMembers ? "Full" : "Join Plan"}
-                        </Text>
-                      )}
-                    </Pressable>
+                    <MaterialCommunityIcons name={icon as any} size={22} color={Colors.light.tint} />
                   )}
                 </View>
+                <View style={styles.planRowText}>
+                  <Text style={styles.planRowAmount}>{formatAmount(amount)}</Text>
+                  <Text style={styles.planRowSub}>Choose duration to calculate EMI</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={Colors.light.textMuted} />
+              </Pressable>
+            ))}
+
+            {/* Custom Amount */}
+            <Pressable style={styles.planRow} onPress={() => { setCustomError(""); setCustomAmountText(""); setShowCustomModal(true); Haptics.selectionAsync(); }}>
+              <View style={styles.planIconBox}>
+                <Ionicons name="options-outline" size={22} color={Colors.light.tint} />
               </View>
-            ))
-          )
+              <View style={styles.planRowText}>
+                <Text style={styles.planRowAmount}>Custom Amount</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors.light.textMuted} />
+            </Pressable>
+          </>
         ) : (
           !user ? (
             <View style={styles.empty}>
               <Ionicons name="lock-closed-outline" size={64} color={Colors.light.border} />
               <Text style={styles.emptyText}>Sign in to see your chits</Text>
-              <Pressable style={styles.signInBtn} onPress={() => router.push("/auth")}>
-                <Text style={styles.signInBtnText}>Sign In</Text>
+              <Pressable style={styles.actionBtn} onPress={() => router.push("/auth")}>
+                <Text style={styles.actionBtnText}>Sign In</Text>
               </Pressable>
             </View>
           ) : myChits.length === 0 ? (
             <View style={styles.empty}>
               <MaterialCommunityIcons name="piggy-bank-outline" size={64} color={Colors.light.border} />
               <Text style={styles.emptyText}>No active chits</Text>
-              <Pressable style={styles.signInBtn} onPress={() => setTab("browse")}>
-                <Text style={styles.signInBtnText}>Browse Plans</Text>
+              <Text style={styles.emptySubtext}>Start saving with a chit plan</Text>
+              <Pressable style={styles.actionBtn} onPress={() => setTab("browse")}>
+                <Text style={styles.actionBtnText}>Browse Plans</Text>
               </Pressable>
             </View>
           ) : (
-            myChits.map(enrollment => (
-              <View key={enrollment.id} style={styles.myChitCard}>
+            myChits.map(e => (
+              <View key={e.id} style={styles.myChitCard}>
                 <View style={styles.myChitHeader}>
-                  <Text style={styles.myChitName}>{enrollment.chitPlan.name}</Text>
-                  <View style={[styles.myChitStatus, { backgroundColor: enrollment.status === "active" ? "#E8F8EE" : "#FFF0EE" }]}>
-                    <Text style={[styles.myChitStatusText, { color: enrollment.status === "active" ? Colors.light.success : Colors.light.tint }]}>
-                      {enrollment.status}
+                  <Text style={styles.myChitName}>{e.chitPlan.name}</Text>
+                  <View style={[styles.statusPill, { backgroundColor: e.status === "active" ? "#E8F8EE" : "#FFF0EE" }]}>
+                    <Text style={[styles.statusText, { color: e.status === "active" ? Colors.light.success : Colors.light.tint }]}>
+                      {e.status}
                     </Text>
                   </View>
                 </View>
                 <View style={styles.myChitStats}>
                   <View style={styles.myStatItem}>
-                    <Text style={styles.myStatLabel}>Paid so far</Text>
-                    <Text style={styles.myStatValue}>₹{enrollment.amountPaid.toFixed(0)}</Text>
+                    <Text style={styles.myStatLabel}>Total</Text>
+                    <Text style={styles.myStatValue}>{formatAmount(e.chitPlan.totalAmount)}</Text>
                   </View>
                   <View style={styles.myStatItem}>
-                    <Text style={styles.myStatLabel}>Monthly</Text>
-                    <Text style={styles.myStatValue}>₹{enrollment.chitPlan.monthlyContribution.toFixed(0)}</Text>
+                    <Text style={styles.myStatLabel}>Monthly EMI</Text>
+                    <Text style={styles.myStatValue}>{formatAmount(Math.round(e.chitPlan.monthlyContribution))}</Text>
                   </View>
                   <View style={styles.myStatItem}>
-                    <Text style={styles.myStatLabel}>Pool</Text>
-                    <Text style={styles.myStatValue}>₹{(enrollment.chitPlan.totalAmount / 1000).toFixed(0)}K</Text>
+                    <Text style={styles.myStatLabel}>Paid</Text>
+                    <Text style={styles.myStatValue}>{formatAmount(Math.round(e.amountPaid))}</Text>
                   </View>
                 </View>
-                {enrollment.nextPaymentDate && (
-                  <View style={styles.nextPayment}>
+                {e.nextPaymentDate && (
+                  <View style={styles.nextPaymentRow}>
                     <Ionicons name="calendar-outline" size={14} color={Colors.light.textMuted} />
                     <Text style={styles.nextPaymentText}>
-                      Next: {new Date(enrollment.nextPaymentDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                      Next payment: {new Date(e.nextPaymentDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
                     </Text>
                   </View>
                 )}
@@ -258,6 +288,106 @@ export default function ChitsScreen() {
           )
         )}
       </ScrollView>
+
+      {/* Custom Amount Modal */}
+      <Modal visible={showCustomModal} transparent animationType="fade">
+        <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowCustomModal(false)} />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Custom Amount</Text>
+            <View style={styles.inputWrap}>
+              <TextInput
+                style={styles.amountInput}
+                value={customAmountText}
+                onChangeText={setCustomAmountText}
+                placeholder="Amount (₹)"
+                placeholderTextColor={Colors.light.textMuted}
+                keyboardType="numeric"
+                autoFocus
+              />
+            </View>
+            <Text style={styles.minNote}>Minimum: ₹1,000</Text>
+            {customError ? <Text style={styles.errorNote}>{customError}</Text> : null}
+            <View style={styles.modalBtns}>
+              <Pressable style={styles.modalCancelBtn} onPress={() => setShowCustomModal(false)}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={styles.modalConfirmBtn} onPress={handleCustomContinue}>
+                <Text style={styles.modalConfirmText}>Continue</Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Duration Modal */}
+      <Modal visible={showDurationModal} transparent animationType="fade">
+        <View style={styles.overlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => !enrolling && setShowDurationModal(false)} />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Select Duration</Text>
+            <Text style={styles.modalAmountLabel}>
+              Amount: {selectedAmount ? formatAmount(selectedAmount) + ".00" : ""}
+            </Text>
+
+            <Text style={styles.durationLabel}>Duration (months):</Text>
+            <Slider
+              style={styles.slider}
+              minimumValue={1}
+              maximumValue={maxMonths}
+              step={1}
+              value={duration}
+              onValueChange={(v) => setDuration(Math.round(v))}
+              minimumTrackTintColor={Colors.light.tint}
+              maximumTrackTintColor={Colors.light.border}
+              thumbTintColor={Colors.light.tint}
+            />
+            <Text style={styles.durationValue}>{duration} month{duration !== 1 ? "s" : ""}</Text>
+
+            {/* EMI box */}
+            <View style={styles.emiBox}>
+              <View style={styles.emiTitleRow}>
+                <Ionicons name="information-circle-outline" size={15} color="#1a6fd4" />
+                <Text style={styles.emiTitle}>Monthly EMI</Text>
+              </View>
+              <Text style={styles.emiAmount}>{formatAmount(Math.round(emi))}</Text>
+            </View>
+
+            {/* Deadline warning */}
+            <View style={[styles.deadlineBox, isOverDeadline && styles.deadlineBoxError]}>
+              <Ionicons
+                name={isOverDeadline ? "alert-circle-outline" : "warning-outline"}
+                size={15}
+                color={isOverDeadline ? Colors.light.error : "#b45309"}
+              />
+              <Text style={[styles.deadlineText, isOverDeadline && styles.deadlineTextError]}>
+                {isOverDeadline
+                  ? `Plan ends ${endDateStr}, which is after October 2026`
+                  : `Plan must end before October 2026`}
+              </Text>
+            </View>
+
+            {enrollError ? <Text style={styles.errorNote}>{enrollError}</Text> : null}
+
+            <View style={styles.modalBtns}>
+              <Pressable style={styles.modalCancelBtn} onPress={() => setShowDurationModal(false)} disabled={enrolling}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalConfirmBtn, (enrolling || isOverDeadline) && { opacity: 0.6 }]}
+                onPress={handleEnroll}
+                disabled={enrolling || isOverDeadline}
+              >
+                {enrolling ? (
+                  <ActivityIndicator size="small" color={Colors.light.tint} />
+                ) : (
+                  <Text style={styles.modalConfirmText}>Enroll</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -265,87 +395,100 @@ export default function ChitsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.light.background },
   loader: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: Colors.light.background },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
+  header: { paddingHorizontal: 20, paddingBottom: 10 },
   title: { fontSize: 26, color: Colors.light.text },
-  subtitle: { fontSize: 13, color: Colors.light.textMuted },
-  savingsIcon: {
-    width: 48, height: 48, borderRadius: 24,
-    backgroundColor: Colors.light.cream, alignItems: "center", justifyContent: "center",
-  },
   tabs: {
-    flexDirection: "row",
-    marginHorizontal: 16,
-    marginBottom: 16,
-    backgroundColor: Colors.light.surface,
-    borderRadius: 12,
-    padding: 4,
+    flexDirection: "row", marginHorizontal: 16, marginBottom: 16,
+    backgroundColor: Colors.light.surface, borderRadius: 12, padding: 4,
   },
   tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 10, flexDirection: "row", justifyContent: "center", gap: 6 },
   tabActive: { backgroundColor: "#fff", shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },
   tabText: { fontSize: 14, color: Colors.light.textMuted },
-  tabTextActive: { color: Colors.light.text, },
-  badge: {
-    backgroundColor: Colors.light.tint,
-    borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1,
-    minWidth: 20, alignItems: "center",
+  tabTextActive: { color: Colors.light.text },
+  badge: { backgroundColor: Colors.light.tint, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1, minWidth: 20, alignItems: "center" },
+  badgeText: { color: "#fff", fontSize: 11 },
+  content: { paddingHorizontal: 16, gap: 12 },
+  infoBox: {
+    backgroundColor: "#EAF3FF", borderRadius: 14, padding: 16, gap: 6,
+    borderWidth: 1, borderColor: "#C3D9F5",
   },
-  badgeText: { color: "#fff", fontSize: 11, },
-  content: { paddingHorizontal: 16, gap: 16 },
-  planCard: {
-    backgroundColor: "#fff", borderRadius: 20, overflow: "hidden",
-    shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3,
+  infoTitle: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
+  infoTitleText: { fontSize: 14, color: "#1a6fd4" },
+  infoLine: { fontSize: 13, color: Colors.light.textSecondary, lineHeight: 20 },
+  sectionLabel: { fontSize: 18, color: Colors.light.text, marginTop: 4 },
+  planRow: {
+    flexDirection: "row", alignItems: "center", gap: 14,
+    backgroundColor: "#fff", borderRadius: 14, padding: 16,
+    shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
   },
-  planHeader: { padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  planName: { fontSize: 18, color: "#fff" },
-  statusRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
-  statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#A8F0B8" },
-  planStatus: { fontSize: 12, color: "rgba(255,255,255,0.85)" },
-  planAmountBadge: {
-    backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 12,
-    padding: 10, alignItems: "center",
+  planIconBox: {
+    width: 44, height: 44, borderRadius: 12,
+    backgroundColor: Colors.light.tint + "18", alignItems: "center", justifyContent: "center",
   },
-  planAmountLabel: { fontSize: 11, color: "rgba(255,255,255,0.85)" },
-  planAmountValue: { fontSize: 20, color: "#fff" },
-  planBody: { padding: 16, gap: 12 },
-  planDesc: { fontSize: 13, color: Colors.light.textSecondary, lineHeight: 20 },
-  planStats: { flexDirection: "row", justifyContent: "space-between" },
-  stat: { alignItems: "center", gap: 4 },
-  statLabel: { fontSize: 11, color: Colors.light.textMuted },
-  statValue: { fontSize: 14, color: Colors.light.text },
-  progressBarBg: { height: 6, backgroundColor: Colors.light.surface, borderRadius: 3, overflow: "hidden" },
-  progressBar: { height: "100%", backgroundColor: Colors.light.tint, borderRadius: 3 },
-  progressText: { fontSize: 11, color: Colors.light.textMuted },
-  enrolledBadge: { flexDirection: "row", alignItems: "center", gap: 8, justifyContent: "center", paddingVertical: 12 },
-  enrolledText: { fontSize: 15, color: Colors.light.success },
-  joinBtn: {
-    backgroundColor: Colors.light.tint, borderRadius: 12,
-    paddingVertical: 14, alignItems: "center",
-  },
-  joinBtnDisabled: { backgroundColor: Colors.light.border },
-  joinBtnText: { fontSize: 15, color: "#fff" },
+  planRowText: { flex: 1 },
+  planRowAmount: { fontSize: 17, color: Colors.light.text },
+  planRowSub: { fontSize: 12, color: Colors.light.textMuted, marginTop: 2 },
+  empty: { alignItems: "center", justifyContent: "center", paddingVertical: 80, gap: 12 },
+  emptyText: { fontSize: 18, color: Colors.light.text },
+  emptySubtext: { fontSize: 13, color: Colors.light.textMuted, textAlign: "center" },
+  actionBtn: { backgroundColor: Colors.light.tint, borderRadius: 12, paddingHorizontal: 32, paddingVertical: 14, marginTop: 4 },
+  actionBtnText: { fontSize: 15, color: "#fff" },
   myChitCard: {
     backgroundColor: "#fff", borderRadius: 16, padding: 16, gap: 12,
     shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
   },
-  myChitHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  myChitName: { fontSize: 16, color: Colors.light.text, flex: 1 },
-  myChitStatus: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  myChitStatusText: { fontSize: 12, },
+  myChitHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
+  myChitName: { fontSize: 15, color: Colors.light.text, flex: 1 },
+  statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  statusText: { fontSize: 12 },
   myChitStats: { flexDirection: "row", justifyContent: "space-between" },
   myStatItem: { alignItems: "center" },
   myStatLabel: { fontSize: 11, color: Colors.light.textMuted },
-  myStatValue: { fontSize: 15, color: Colors.light.text },
-  nextPayment: { flexDirection: "row", alignItems: "center", gap: 6 },
+  myStatValue: { fontSize: 14, color: Colors.light.text },
+  nextPaymentRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   nextPaymentText: { fontSize: 12, color: Colors.light.textMuted },
-  empty: { alignItems: "center", justifyContent: "center", paddingVertical: 80, gap: 12 },
-  emptyText: { fontSize: 18, color: Colors.light.text },
-  emptySubtext: { fontSize: 13, color: Colors.light.textMuted, textAlign: "center" },
-  signInBtn: { backgroundColor: Colors.light.tint, borderRadius: 12, paddingHorizontal: 32, paddingVertical: 14 },
-  signInBtnText: { fontSize: 15, color: "#fff" },
+  overlay: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center", justifyContent: "center", padding: 24,
+  },
+  modalCard: {
+    backgroundColor: "#fff", borderRadius: 20, padding: 24,
+    width: "100%", maxWidth: 360, gap: 12,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 10,
+  },
+  modalTitle: { fontSize: 20, color: Colors.light.text },
+  modalAmountLabel: { fontSize: 14, color: Colors.light.textSecondary },
+  inputWrap: {
+    borderWidth: 1.5, borderColor: Colors.light.border, borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 12,
+  },
+  amountInput: { fontSize: 16, color: Colors.light.text },
+  minNote: { fontSize: 12, color: Colors.light.textMuted, textAlign: "center" },
+  errorNote: { fontSize: 13, color: Colors.light.error, textAlign: "center" },
+  durationLabel: { fontSize: 13, color: Colors.light.textSecondary },
+  slider: { width: "100%", height: 40 },
+  durationValue: { fontSize: 20, color: Colors.light.text },
+  emiBox: {
+    backgroundColor: "#EAF3FF", borderRadius: 12, padding: 12, gap: 4,
+    borderWidth: 1, borderColor: "#C3D9F5",
+  },
+  emiTitleRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  emiTitle: { fontSize: 13, color: "#1a6fd4" },
+  emiAmount: { fontSize: 24, color: "#1a6fd4" },
+  deadlineBox: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "#FFFBEB", borderRadius: 10, padding: 10,
+    borderWidth: 1, borderColor: "#FDE68A",
+  },
+  deadlineBoxError: { backgroundColor: "#FFF0EE", borderColor: "#FCCFC9" },
+  deadlineText: { fontSize: 12, color: "#b45309", flex: 1 },
+  deadlineTextError: { color: Colors.light.error },
+  modalBtns: { flexDirection: "row", gap: 12, marginTop: 4 },
+  modalCancelBtn: { flex: 1, paddingVertical: 14, alignItems: "center", borderRadius: 12 },
+  modalCancelText: { fontSize: 16, color: Colors.light.tint },
+  modalConfirmBtn: {
+    flex: 1, paddingVertical: 14, alignItems: "center", borderRadius: 12,
+    backgroundColor: "#fff", borderWidth: 1.5, borderColor: Colors.light.tint,
+  },
+  modalConfirmText: { fontSize: 16, color: Colors.light.tint },
 });
