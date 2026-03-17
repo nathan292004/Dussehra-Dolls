@@ -75,7 +75,6 @@ function ClassicTabLayout() {
             <View style={[StyleSheet.absoluteFill, { backgroundColor: "#FFF9F0" }]} />
           ) : null,
         tabBarLabelStyle: {
-          fontFamily: "Inter_500Medium",
           fontSize: 10,
         },
       }}

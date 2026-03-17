@@ -189,12 +189,10 @@ const styles = StyleSheet.create({
   },
   greeting: {
     fontSize: 13,
-    fontFamily: "Inter_400Regular",
     color: Colors.light.textMuted,
   },
   headerTitle: {
     fontSize: 26,
-    fontFamily: "Inter_700Bold",
     color: Colors.light.tint,
     letterSpacing: -0.5,
   },
@@ -219,7 +217,6 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    fontFamily: "Inter_400Regular",
     fontSize: 14,
     color: Colors.light.text,
   },
@@ -239,7 +236,6 @@ const styles = StyleSheet.create({
   },
   categoryText: {
     fontSize: 13,
-    fontFamily: "Inter_500Medium",
     color: Colors.light.textSecondary,
   },
   categoryTextActive: { color: "#fff" },
@@ -254,18 +250,16 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 18,
-    fontFamily: "Inter_700Bold",
     color: Colors.light.text,
     paddingHorizontal: 16,
     marginBottom: 12,
   },
   productCount: {
     fontSize: 13,
-    fontFamily: "Inter_400Regular",
     color: Colors.light.textMuted,
   },
   list: { paddingHorizontal: 16 },
   row: { gap: 12, marginBottom: 12 },
   empty: { alignItems: "center", paddingTop: 60, gap: 12 },
-  emptyText: { fontSize: 16, fontFamily: "Inter_500Medium", color: Colors.light.textMuted },
+  emptyText: { fontSize: 16, color: Colors.light.textMuted },
 });
