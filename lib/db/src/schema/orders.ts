@@ -7,6 +7,7 @@ export const ordersTable = pgTable("orders", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => usersTable.id),
   status: text("status").notNull().default("pending"),
+  paymentStatus: text("payment_status").notNull().default("pending"),
   items: jsonb("items").$type<Array<{
     productId: number;
     productName: string;
