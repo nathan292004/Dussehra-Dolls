@@ -5,3 +5,4 @@ export * from "./chits";
 export * from "./wallet";
 export * from "./cart";
 export * from "./otp";
+export * from "./vendors";

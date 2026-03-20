@@ -1,10 +1,33 @@
 import * as React from "react";
-import { useAdminStats } from "@/hooks/use-dashboard";
+import { useQuery } from "@tanstack/react-query";
 import { formatCurrency } from "@/lib/utils";
-import { Package, ShoppingCart, IndianRupee, AlertTriangle, TrendingUp } from "lucide-react";
+import { ShoppingCart, Package, Users, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { motion } from "framer-motion";
+
+type RecentOrder = { id: number; userId: number; customerName: string; total: number; status: string; createdAt: string };
+type AdminStats = {
+  totalOrders: number;
+  totalRevenue: number;
+  activeProducts: number;
+  lowStockCount: number;
+  totalUsers: number;
+  totalWallets: number;
+  recentOrders: RecentOrder[];
+};
+
+function useAdminStats() {
+  return useQuery<AdminStats>({
+    queryKey: ["/api/admin/stats"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/stats");
+      if (!res.ok) return { totalOrders: 0, totalRevenue: 0, activeProducts: 0, lowStockCount: 0, totalUsers: 0, totalWallets: 0, recentOrders: [] };
+      return res.json();
+    },
+    refetchInterval: 15000,
+  });
+}
 
 export function Dashboard() {
   const { data: stats, isLoading } = useAdminStats();
@@ -12,7 +35,7 @@ export function Dashboard() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary" />
       </div>
     );
   }
@@ -20,10 +43,10 @@ export function Dashboard() {
   if (!stats) return null;
 
   const statCards = [
-    { label: "Total Revenue", value: formatCurrency(stats.totalRevenue), icon: IndianRupee, color: "text-gold", bg: "bg-gold/10" },
-    { label: "Total Orders", value: stats.totalOrders.toString(), icon: ShoppingCart, color: "text-primary", bg: "bg-primary/10" },
-    { label: "Active Products", value: stats.activeProducts.toString(), icon: Package, color: "text-blue-500", bg: "bg-blue-500/10" },
-    { label: "Low Stock Alerts", value: stats.lowStockCount.toString(), icon: AlertTriangle, color: "text-destructive", bg: "bg-destructive/10" },
+    { label: "Total Orders", value: stats.totalOrders, sub: "All time orders", icon: ShoppingCart },
+    { label: "Total Products", value: stats.activeProducts, sub: "Active products", icon: Package },
+    { label: "Total Users", value: stats.totalUsers, sub: "Registered users", icon: Users },
+    { label: "Total Wallets", value: stats.totalWallets, sub: "Active wallets", icon: Wallet },
   ];
 
   return (
@@ -33,89 +56,73 @@ export function Dashboard() {
         <p className="text-muted-foreground mt-1">Welcome back. Here's what's happening today.</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {statCards.map((card, i) => (
           <motion.div
+            key={card.label}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.1 }}
-            key={card.label}
-            className="glass-panel rounded-2xl p-6 flex items-start justify-between card-shadow"
+            transition={{ delay: i * 0.08 }}
+            className="bg-white rounded-xl border border-border p-5 shadow-sm"
           >
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{card.label}</p>
-              <h3 className="text-3xl font-display font-bold text-foreground mt-2">{card.value}</h3>
-            </div>
-            <div className={`p-3 rounded-xl ${card.bg}`}>
-              <card.icon className={`w-6 h-6 ${card.color}`} />
-            </div>
+            <p className="text-sm text-muted-foreground">{card.label}</p>
+            <p className="text-4xl font-bold text-foreground mt-1">{card.value}</p>
+            <p className="text-xs text-muted-foreground mt-2">{card.sub}</p>
           </motion.div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 glass-panel rounded-2xl p-6 card-shadow">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-foreground">Recent Orders</h2>
-            <div className="flex items-center text-sm text-primary font-medium cursor-pointer hover:underline">
-              View All <TrendingUp className="w-4 h-4 ml-1" />
-            </div>
-          </div>
-          
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="bg-white rounded-xl border border-border shadow-sm p-5">
+          <h2 className="text-lg font-semibold text-foreground mb-4">Recent Orders</h2>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="text-xs text-muted-foreground uppercase bg-muted/50 rounded-lg">
+            <table className="w-full text-sm">
+              <thead className="text-xs text-muted-foreground uppercase bg-muted/30">
                 <tr>
-                  <th className="px-4 py-3 rounded-l-lg font-semibold">Order ID</th>
-                  <th className="px-4 py-3 font-semibold">Customer</th>
-                  <th className="px-4 py-3 font-semibold">Date</th>
-                  <th className="px-4 py-3 font-semibold">Amount</th>
-                  <th className="px-4 py-3 rounded-r-lg font-semibold">Status</th>
+                  <th className="px-3 py-2 text-left rounded-l-lg">Order ID</th>
+                  <th className="px-3 py-2 text-left">Customer</th>
+                  <th className="px-3 py-2 text-left">Amount</th>
+                  <th className="px-3 py-2 text-left rounded-r-lg">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {stats.recentOrders.map((order, i) => (
-                  <motion.tr 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.2 + (i * 0.05) }}
-                    key={order.id} 
-                    className="border-b border-border/50 hover:bg-surface-hover transition-colors"
-                  >
-                    <td className="px-4 py-4 font-medium text-foreground">#{order.id}</td>
-                    <td className="px-4 py-4">{order.customerName}</td>
-                    <td className="px-4 py-4 text-muted-foreground">{format(new Date(order.createdAt), 'MMM dd, yyyy')}</td>
-                    <td className="px-4 py-4 font-medium">{formatCurrency(order.total)}</td>
-                    <td className="px-4 py-4">
+                {stats.recentOrders.map(order => (
+                  <tr key={order.id} className="border-t border-border/50 hover:bg-muted/10">
+                    <td className="px-3 py-3 text-xs font-mono text-muted-foreground">#{order.id}</td>
+                    <td className="px-3 py-3 font-medium">{order.customerName}</td>
+                    <td className="px-3 py-3">{formatCurrency(order.total)}</td>
+                    <td className="px-3 py-3">
                       <Badge variant={
-                        order.status === 'delivered' ? 'success' :
-                        order.status === 'cancelled' ? 'destructive' :
-                        order.status === 'processing' ? 'warning' : 'default'
-                      }>
-                        {order.status}
-                      </Badge>
+                        order.status === "delivered" ? "success" :
+                        order.status === "cancelled" ? "destructive" :
+                        order.status === "shipped" || order.status === "processing" ? "warning" : "default"
+                      }>{order.status}</Badge>
                     </td>
-                  </motion.tr>
+                  </tr>
                 ))}
+                {stats.recentOrders.length === 0 && (
+                  <tr><td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">No orders yet.</td></tr>
+                )}
               </tbody>
             </table>
-            {stats.recentOrders.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground">No recent orders found.</div>
-            )}
           </div>
         </div>
 
-        <div className="glass-panel rounded-2xl p-6 card-shadow">
-          <h2 className="text-xl font-bold text-foreground mb-6">Quick Actions</h2>
-          <div className="space-y-4">
-             <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 hover:bg-primary/10 transition-colors cursor-pointer group">
-               <h4 className="font-semibold text-primary group-hover:underline">Add New Product</h4>
-               <p className="text-sm text-muted-foreground mt-1">Expand your festive catalog.</p>
-             </div>
-             <div className="p-4 rounded-xl border border-gold/20 bg-gold/5 hover:bg-gold/10 transition-colors cursor-pointer group">
-               <h4 className="font-semibold text-gold-foreground group-hover:underline">Manage Chits</h4>
-               <p className="text-sm text-muted-foreground mt-1">Review active savings plans.</p>
-             </div>
+        <div className="bg-white rounded-xl border border-border shadow-sm p-5 space-y-4">
+          <h2 className="text-lg font-semibold text-foreground">Quick Summary</h2>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center py-2 border-b border-border/50">
+              <span className="text-sm text-muted-foreground">Total Revenue</span>
+              <span className="font-semibold">{formatCurrency(stats.totalRevenue)}</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b border-border/50">
+              <span className="text-sm text-muted-foreground">Low Stock Items</span>
+              <span className={`font-semibold ${stats.lowStockCount > 0 ? "text-destructive" : "text-green-600"}`}>{stats.lowStockCount}</span>
+            </div>
+            <div className="flex justify-between items-center py-2">
+              <span className="text-sm text-muted-foreground">Active Users</span>
+              <span className="font-semibold">{stats.totalUsers}</span>
+            </div>
           </div>
         </div>
       </div>

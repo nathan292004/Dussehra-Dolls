@@ -15,9 +15,12 @@ export const productsTable = pgTable("products", {
   reviewCount: integer("review_count").default(0).notNull(),
   isFeatured: boolean("is_featured").default(false).notNull(),
   tags: jsonb("tags").$type<string[]>().default([]),
+  serialNumber: text("serial_number"),
+  location: text("location"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const insertProductSchema = createInsertSchema(productsTable).omit({ id: true, createdAt: true });
+export const insertProductSchema = createInsertSchema(productsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type Product = typeof productsTable.$inferSelect;

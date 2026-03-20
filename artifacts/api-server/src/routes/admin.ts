@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { productsTable, ordersTable, usersTable } from "@workspace/db/schema";
-import { eq, lt, count, sum, desc } from "drizzle-orm";
+import {
+  productsTable, ordersTable, usersTable, walletsTable,
+  chitPlansTable, chitEnrollmentsTable, vendorsTable,
+} from "@workspace/db/schema";
+import { eq, lt, count, sum, desc, sql } from "drizzle-orm";
 
 const router = Router();
 
@@ -12,17 +15,21 @@ const formatProduct = (p: typeof productsTable.$inferSelect) => ({
   rating: p.rating ? parseFloat(p.rating) : 0,
 });
 
-const formatOrder = (o: typeof ordersTable.$inferSelect & { customerName?: string | null }) => ({
+const formatOrder = (o: typeof ordersTable.$inferSelect & { customerName?: string | null; customerPhone?: string | null }) => ({
   ...o,
   total: parseFloat(o.total),
   customerName: o.customerName ?? "Unknown",
+  customerPhone: o.customerPhone ?? "",
 });
 
+// ─── Stats ───────────────────────────────────────────────────────────────────
 router.get("/stats", async (_req, res) => {
   try {
     const [totalOrdersRow] = await db.select({ value: count() }).from(ordersTable);
     const [revenueRow] = await db.select({ value: sum(ordersTable.total) }).from(ordersTable);
     const [productCountRow] = await db.select({ value: count() }).from(productsTable);
+    const [userCountRow] = await db.select({ value: count() }).from(usersTable);
+    const [walletCountRow] = await db.select({ value: count() }).from(walletsTable);
     const lowStockRows = await db.select({ value: count() }).from(productsTable).where(lt(productsTable.stock, 5));
 
     const recentOrders = await db
@@ -31,6 +38,7 @@ router.get("/stats", async (_req, res) => {
         userId: ordersTable.userId,
         total: ordersTable.total,
         status: ordersTable.status,
+        paymentStatus: ordersTable.paymentStatus,
         paymentMethod: ordersTable.paymentMethod,
         address: ordersTable.address,
         items: ordersTable.items,
@@ -47,6 +55,8 @@ router.get("/stats", async (_req, res) => {
       totalRevenue: parseFloat(revenueRow.value ?? "0"),
       activeProducts: Number(productCountRow.value ?? 0),
       lowStockCount: Number(lowStockRows[0]?.value ?? 0),
+      totalUsers: Number(userCountRow.value ?? 0),
+      totalWallets: Number(walletCountRow.value ?? 0),
       recentOrders: recentOrders.map(o => ({
         ...o,
         total: parseFloat(o.total),
@@ -59,6 +69,7 @@ router.get("/stats", async (_req, res) => {
   }
 });
 
+// ─── Products ─────────────────────────────────────────────────────────────────
 router.get("/products", async (_req, res) => {
   try {
     const products = await db.select().from(productsTable).orderBy(desc(productsTable.createdAt));
@@ -71,15 +82,10 @@ router.get("/products", async (_req, res) => {
 
 router.post("/products", async (req, res) => {
   try {
-    const {
-      name, description, price, originalPrice, category,
-      imageUrl, stock, isFeatured, tags,
-    } = req.body;
-
+    const { name, description, price, originalPrice, category, imageUrl, stock, isFeatured, tags, serialNumber, location } = req.body;
     if (!name || !price || !category) {
       return res.status(400).json({ error: "name, price, and category are required" });
     }
-
     const [product] = await db.insert(productsTable).values({
       name,
       description: description ?? null,
@@ -90,8 +96,9 @@ router.post("/products", async (req, res) => {
       stock: parseInt(stock ?? "0"),
       isFeatured: isFeatured ?? false,
       tags: Array.isArray(tags) ? tags : (typeof tags === "string" ? tags.split(",").map((t: string) => t.trim()).filter(Boolean) : []),
+      serialNumber: serialNumber ?? null,
+      location: location ?? null,
     }).returning();
-
     return res.status(201).json(formatProduct(product));
   } catch (err) {
     console.error(err);
@@ -102,11 +109,7 @@ router.post("/products", async (req, res) => {
 router.put("/products/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const {
-      name, description, price, originalPrice, category,
-      imageUrl, stock, isFeatured, tags, rating, reviewCount,
-    } = req.body;
-
+    const { name, description, price, originalPrice, category, imageUrl, stock, isFeatured, tags, rating, reviewCount, serialNumber, location } = req.body;
     const updateData: Partial<typeof productsTable.$inferInsert> = {};
     if (name !== undefined) updateData.name = name;
     if (description !== undefined) updateData.description = description;
@@ -118,13 +121,14 @@ router.put("/products/:id", async (req, res) => {
     if (isFeatured !== undefined) updateData.isFeatured = isFeatured;
     if (rating !== undefined) updateData.rating = parseFloat(rating).toFixed(2);
     if (reviewCount !== undefined) updateData.reviewCount = parseInt(reviewCount);
+    if (serialNumber !== undefined) updateData.serialNumber = serialNumber;
+    if (location !== undefined) updateData.location = location;
     if (tags !== undefined) {
       updateData.tags = Array.isArray(tags) ? tags : (typeof tags === "string" ? tags.split(",").map((t: string) => t.trim()).filter(Boolean) : []);
     }
-
+    updateData.updatedAt = new Date();
     const [updated] = await db.update(productsTable).set(updateData).where(eq(productsTable.id, id)).returning();
     if (!updated) return res.status(404).json({ error: "Product not found" });
-
     return res.json(formatProduct(updated));
   } catch (err) {
     console.error(err);
@@ -144,6 +148,60 @@ router.delete("/products/:id", async (req, res) => {
   }
 });
 
+// ─── Vendors ─────────────────────────────────────────────────────────────────
+router.get("/vendors", async (_req, res) => {
+  try {
+    const vendors = await db.select().from(vendorsTable).orderBy(desc(vendorsTable.createdAt));
+    return res.json(vendors);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/vendors", async (req, res) => {
+  try {
+    const { name, contact, email, phone } = req.body;
+    if (!name) return res.status(400).json({ error: "name is required" });
+    const [vendor] = await db.insert(vendorsTable).values({ name, contact, email, phone }).returning();
+    return res.status(201).json(vendor);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.put("/vendors/:id", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { name, contact, email, phone } = req.body;
+    const updateData: Partial<typeof vendorsTable.$inferInsert> = {};
+    if (name !== undefined) updateData.name = name;
+    if (contact !== undefined) updateData.contact = contact;
+    if (email !== undefined) updateData.email = email;
+    if (phone !== undefined) updateData.phone = phone;
+    const [updated] = await db.update(vendorsTable).set(updateData).where(eq(vendorsTable.id, id)).returning();
+    if (!updated) return res.status(404).json({ error: "Vendor not found" });
+    return res.json(updated);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.delete("/vendors/:id", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [deleted] = await db.delete(vendorsTable).where(eq(vendorsTable.id, id)).returning();
+    if (!deleted) return res.status(404).json({ error: "Vendor not found" });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Orders ─────────────────────────────────────────────────────────────────
 router.get("/orders", async (_req, res) => {
   try {
     const orders = await db
@@ -152,12 +210,13 @@ router.get("/orders", async (_req, res) => {
         userId: ordersTable.userId,
         total: ordersTable.total,
         status: ordersTable.status,
+        paymentStatus: ordersTable.paymentStatus,
         paymentMethod: ordersTable.paymentMethod,
         address: ordersTable.address,
         items: ordersTable.items,
         createdAt: ordersTable.createdAt,
         customerName: usersTable.name,
-        customerEmail: usersTable.email,
+        customerPhone: usersTable.phone,
       })
       .from(ordersTable)
       .leftJoin(usersTable, eq(ordersTable.userId, usersTable.id))
@@ -167,7 +226,7 @@ router.get("/orders", async (_req, res) => {
       ...o,
       total: parseFloat(o.total),
       customerName: o.customerName ?? "Unknown",
-      customerEmail: o.customerEmail ?? "",
+      customerPhone: o.customerPhone ?? "",
     })));
   } catch (err) {
     console.error(err);
@@ -178,22 +237,146 @@ router.get("/orders", async (_req, res) => {
 router.put("/orders/:id/status", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { status } = req.body;
+    const { status, paymentStatus } = req.body;
+    const validStatuses = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"];
+    const validPaymentStatuses = ["pending", "paid", "failed"];
 
-    const validStatuses = ["confirmed", "processing", "shipped", "delivered", "cancelled"];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` });
+    const updateData: Partial<typeof ordersTable.$inferInsert> = {};
+    if (status !== undefined) {
+      if (!validStatuses.includes(status)) return res.status(400).json({ error: `Invalid status` });
+      updateData.status = status;
+    }
+    if (paymentStatus !== undefined) {
+      if (!validPaymentStatuses.includes(paymentStatus)) return res.status(400).json({ error: `Invalid paymentStatus` });
+      updateData.paymentStatus = paymentStatus;
     }
 
-    const [updated] = await db
-      .update(ordersTable)
-      .set({ status })
-      .where(eq(ordersTable.id, id))
-      .returning();
-
+    const [updated] = await db.update(ordersTable).set(updateData).where(eq(ordersTable.id, id)).returning();
     if (!updated) return res.status(404).json({ error: "Order not found" });
-
     return res.json({ ...updated, total: parseFloat(updated.total) });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Users ────────────────────────────────────────────────────────────────────
+router.get("/users", async (_req, res) => {
+  try {
+    const users = await db
+      .select({
+        id: usersTable.id,
+        name: usersTable.name,
+        email: usersTable.email,
+        phone: usersTable.phone,
+        isActive: usersTable.isActive,
+        createdAt: usersTable.createdAt,
+      })
+      .from(usersTable)
+      .orderBy(desc(usersTable.createdAt));
+    return res.json(users);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Wallets ─────────────────────────────────────────────────────────────────
+router.get("/wallets", async (_req, res) => {
+  try {
+    const wallets = await db
+      .select({
+        id: walletsTable.id,
+        userId: walletsTable.userId,
+        balance: walletsTable.balance,
+        updatedAt: walletsTable.updatedAt,
+        userName: usersTable.name,
+        userEmail: usersTable.email,
+        userPhone: usersTable.phone,
+      })
+      .from(walletsTable)
+      .leftJoin(usersTable, eq(walletsTable.userId, usersTable.id))
+      .orderBy(desc(walletsTable.updatedAt));
+    return res.json(wallets.map(w => ({ ...w, balance: parseFloat(w.balance) })));
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Chit Plans ──────────────────────────────────────────────────────────────
+router.get("/chit-plans", async (_req, res) => {
+  try {
+    const plans = await db.select().from(chitPlansTable).orderBy(desc(chitPlansTable.createdAt));
+    return res.json(plans.map(p => ({
+      ...p,
+      totalAmount: parseFloat(p.totalAmount),
+      monthlyContribution: parseFloat(p.monthlyContribution),
+    })));
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Chit Subscriptions ──────────────────────────────────────────────────────
+router.get("/chit-subscriptions", async (_req, res) => {
+  try {
+    const now = new Date();
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const enrollments = await db
+      .select({
+        enrollment: chitEnrollmentsTable,
+        plan: chitPlansTable,
+        user: {
+          id: usersTable.id,
+          name: usersTable.name,
+          email: usersTable.email,
+          phone: usersTable.phone,
+        },
+      })
+      .from(chitEnrollmentsTable)
+      .leftJoin(chitPlansTable, eq(chitEnrollmentsTable.chitPlanId, chitPlansTable.id))
+      .leftJoin(usersTable, eq(chitEnrollmentsTable.userId, usersTable.id))
+      .orderBy(desc(chitEnrollmentsTable.joinedAt));
+
+    const allEnrollments = enrollments.filter(e => e.plan).map(e => {
+      const amountPaid = parseFloat(e.enrollment.amountPaid);
+      const totalAmount = parseFloat(e.plan!.totalAmount);
+      const monthlyEmi = parseFloat(e.plan!.monthlyContribution);
+      const progress = totalAmount > 0 ? Math.min(100, Math.round((amountPaid / totalAmount) * 100)) : 0;
+      const isCompleted = e.enrollment.status === "completed" || amountPaid >= totalAmount;
+      const nextPayment = e.enrollment.nextPaymentDate;
+      const paidThisMonth = nextPayment && new Date(nextPayment) > thisMonthStart ? amountPaid : 0;
+
+      return {
+        id: e.enrollment.id,
+        planId: e.plan!.id,
+        planName: e.plan!.name,
+        totalAmount,
+        monthlyEmi,
+        amountPaid,
+        progress,
+        status: e.enrollment.status,
+        isCompleted,
+        joinedAt: e.enrollment.joinedAt,
+        nextPaymentDate: e.enrollment.nextPaymentDate,
+        user: e.user,
+        paidThisMonth,
+        paymentStatus: paidThisMonth > 0 ? "paid" : "pending",
+      };
+    });
+
+    const totalSubscriptions = allEnrollments.length;
+    const thisMonthPaid = allEnrollments.filter(e => e.paymentStatus === "paid").length;
+    const thisMonthPending = allEnrollments.filter(e => e.paymentStatus === "pending" && e.status === "active").length;
+    const completedPlans = allEnrollments.filter(e => e.isCompleted).length;
+
+    return res.json({
+      stats: { totalSubscriptions, thisMonthPaid, thisMonthPending, completedPlans },
+      enrollments: allEnrollments,
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
