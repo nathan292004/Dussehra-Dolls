@@ -54,7 +54,7 @@ export default function ProfileScreen() {
           <View style={styles.avatarPlaceholder}>
             <Ionicons name="person" size={48} color={Colors.light.border} />
           </View>
-          <Text style={styles.signInTitle}>Welcome to Dussehra Dolls</Text>
+          <Text style={styles.signInTitle}>Welcome to DollDime</Text>
           <Text style={styles.signInSubtitle}>Sign in to manage your account, orders and savings</Text>
           <Pressable style={styles.signInBtn} onPress={() => router.push("/auth")}>
             <Text style={styles.signInBtnText}>Sign In / Register</Text>
@@ -146,7 +146,7 @@ export default function ProfileScreen() {
           <Text style={styles.logoutText}>Sign Out</Text>
         </Pressable>
 
-        <Text style={styles.versionText}>Dussehra Dolls v1.0.0</Text>
+        <Text style={styles.versionText}>DollDime v1.0.0</Text>
       </ScrollView>
     </View>
   );

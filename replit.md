@@ -2,7 +2,7 @@
 
 ## Overview
 
-Dussehra Dolls — a full-stack e-commerce + chit savings platform for selling festive dolls during the Dussehra festival. The system consists of a Flutter Mobile App (Expo React Native), an Express backend API, and a PostgreSQL database.
+DollDime — a full-stack e-commerce + chit savings platform for selling festive dolls during the Dussehra festival. The system consists of a Flutter Mobile App (Expo React Native), an Express backend API, and a PostgreSQL database.
 
 ## Stack
 

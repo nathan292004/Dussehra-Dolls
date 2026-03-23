@@ -54,7 +54,7 @@ router.post("/send-otp", async (req, res) => {
     await db.insert(otpVerificationsTable).values({ phone: normalized, otp, expiresAt });
 
     try {
-      await sendSms(normalized, `Your Dussehra Dolls verification code is: ${otp}. Valid for 10 minutes.`);
+      await sendSms(normalized, `Your DollDime verification code is: ${otp}. Valid for 10 minutes.`);
     } catch (smsErr) {
       console.error("SMS failed:", smsErr);
       return res.status(500).json({ error: "Failed to send OTP. Please try again." });
