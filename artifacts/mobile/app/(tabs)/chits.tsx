@@ -12,7 +12,7 @@ import {
   KeyboardAvoidingView,
 } from "react-native";
 import Slider from "@react-native-community/slider";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -21,10 +21,10 @@ import { useAuth, getApiBase } from "@/context/auth";
 
 const DEADLINE = new Date(2026, 9, 1); // October 2026
 
-const PRESET_PLANS = [
-  { amount: 5000, icon: "business-outline" as const, iconLib: "ion" },
-  { amount: 10000, icon: "card-outline" as const, iconLib: "ion" },
-  { amount: 15000, icon: "piggy-bank" as const, iconLib: "mci" },
+const PRESET_PLANS: { amount: number; icon: React.ComponentProps<typeof Ionicons>["name"] }[] = [
+  { amount: 5000, icon: "business-outline" },
+  { amount: 10000, icon: "card-outline" },
+  { amount: 15000, icon: "wallet-outline" },
 ];
 
 interface MyChitEnrollment {
@@ -204,14 +204,10 @@ export default function ChitsScreen() {
             <Text style={styles.sectionLabel}>Select Chit Plan</Text>
 
             {/* Preset plans */}
-            {PRESET_PLANS.map(({ amount, icon, iconLib }) => (
+            {PRESET_PLANS.map(({ amount, icon }) => (
               <Pressable key={amount} style={styles.planRow} onPress={() => openDurationModal(amount)}>
                 <View style={styles.planIconBox}>
-                  {iconLib === "ion" ? (
-                    <Ionicons name={icon as any} size={22} color={Colors.light.tint} />
-                  ) : (
-                    <MaterialCommunityIcons name={icon as any} size={22} color={Colors.light.tint} />
-                  )}
+                  <Ionicons name={icon} size={22} color={Colors.light.tint} />
                 </View>
                 <View style={styles.planRowText}>
                   <Text style={styles.planRowAmount}>{formatAmount(amount)}</Text>
@@ -243,7 +239,7 @@ export default function ChitsScreen() {
             </View>
           ) : myChits.length === 0 ? (
             <View style={styles.empty}>
-              <MaterialCommunityIcons name="piggy-bank-outline" size={64} color={Colors.light.border} />
+              <Ionicons name="wallet-outline" size={64} color={Colors.light.border} />
               <Text style={styles.emptyText}>No active chits</Text>
               <Text style={styles.emptySubtext}>Start saving with a chit plan</Text>
               <Pressable style={styles.actionBtn} onPress={() => setTab("browse")}>
