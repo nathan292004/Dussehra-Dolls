@@ -78,7 +78,7 @@ export default function ShopScreen() {
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
         <View>
           <Text style={styles.greeting}>Namaste {user?.name?.split(" ")[0] ?? ""}</Text>
-          <Text style={styles.headerTitle}>Dussehra Dolls</Text>
+          <Text style={styles.headerTitle}>DollDime</Text>
         </View>
         <Pressable style={styles.searchIcon} onPress={() => router.push("/profile")}>
           <Ionicons name="person-circle-outline" size={32} color={Colors.light.tint} />

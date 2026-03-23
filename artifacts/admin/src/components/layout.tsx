@@ -32,7 +32,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <div>
-          <h1 className="font-display font-bold text-white text-lg tracking-wide">Dussehra Dolls</h1>
+          <h1 className="font-display font-bold text-white text-lg tracking-wide">DollDime</h1>
           <p className="text-xs text-sidebar-foreground/60 uppercase tracking-wider font-semibold">Admin Portal</p>
         </div>
       </div>

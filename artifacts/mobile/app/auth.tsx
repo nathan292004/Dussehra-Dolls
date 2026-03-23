@@ -169,7 +169,7 @@ export default function AuthScreen() {
           <View style={styles.brandIcon}>
             <Ionicons name="storefront" size={36} color="#fff" />
           </View>
-          <Text style={styles.brandName}>Dussehra Dolls</Text>
+          <Text style={styles.brandName}>DollDime</Text>
           <Text style={styles.brandTagline}>Festive crafts for every home</Text>
         </View>
 
