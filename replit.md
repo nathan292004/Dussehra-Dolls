@@ -68,6 +68,18 @@ artifacts-monorepo/
 - `GET /api/chits/my` — User's enrollments
 - `POST /api/chits` — Join a chit plan
 - `GET/POST /api/wallet` — Wallet balance, add funds
+- `POST /api/payment/create-wallet-payment` + `verify-wallet-payment` — Razorpay wallet top-up
+
+## WhatsApp Notifications (via Twilio)
+- **Library**: `artifacts/api-server/src/lib/twilio.ts` — `sendWhatsApp(to, body)`
+- **Service**: `artifacts/api-server/src/lib/whatsapp-notifications.ts` — message templates
+- **Triggers**:
+  - Order confirmed → WhatsApp sent to buyer's phone
+  - Chit EMI paid → WhatsApp confirmation sent
+  - Wallet topped up → WhatsApp confirmation sent
+  - Daily scheduler (`chit-reminder-scheduler.ts`) → reminders 3 days and 1 day before due, plus overdue alerts (up to 7 days past due)
+- **Env vars**: `TWILIO_WHATSAPP_FROM` (set to Twilio sandbox `+14155238886`)
+- **Sandbox setup**: Users must opt-in by messaging the Twilio sandbox number with the join keyword first
 
 ## Database Schema (Drizzle + PostgreSQL)
 - `users` — authentication, profile
