@@ -1,7 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect } from "react";
+import * as Font from "expo-font";
+import { Ionicons } from "@expo/vector-icons";
+import React, { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -28,9 +30,27 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded, setFontsLoaded] = useState(false);
+
   useEffect(() => {
-    SplashScreen.hideAsync();
+    async function loadFonts() {
+      try {
+        // Preload Ionicons font so icons render correctly on Android
+        await Font.loadAsync(Ionicons.font);
+      } catch (e) {
+        // Font loading error is non-fatal — icons may fall back to placeholders
+        console.warn("Font loading error:", e);
+      } finally {
+        setFontsLoaded(true);
+        SplashScreen.hideAsync();
+      }
+    }
+    loadFonts();
   }, []);
+
+  if (!fontsLoaded) {
+    return null;
+  }
 
   return (
     <SafeAreaProvider>
