@@ -21,6 +21,8 @@ function RootLayoutNav() {
       <Stack.Screen name="product/[id]" options={{ headerShown: false, presentation: "card" }} />
       <Stack.Screen name="checkout" options={{ headerShown: false, presentation: "modal" }} />
       <Stack.Screen name="order/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="razorpay-payment" options={{ headerShown: false, presentation: "modal" }} />
+      <Stack.Screen name="payment-result" options={{ headerShown: false }} />
     </Stack>
   );
 }

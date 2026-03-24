@@ -15,6 +15,7 @@
     "cors": "^2",
     "drizzle-orm": "catalog:",
     "express": "^5",
+    "razorpay": "^2.9.6",
     "twilio": "^5.13.0"
   },
   "devDependencies": {
