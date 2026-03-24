@@ -18,44 +18,51 @@ import Colors from "@/constants/colors";
 import { useAuth, getApiBase } from "@/context/auth";
 import { useCart } from "@/context/cart";
 
-const PAYMENT_METHODS = [
-  { id: "wallet", label: "Wallet", icon: "wallet-outline" as const },
-  { id: "upi", label: "UPI", icon: "phone-portrait-outline" as const },
-  { id: "card", label: "Card", icon: "card-outline" as const },
-  { id: "cod", label: "Cash on Delivery", icon: "cash-outline" as const },
-];
-
 export default function CheckoutScreen() {
   const insets = useSafeAreaInsets();
   const { token } = useAuth();
-  const { cart, fetchCart } = useCart();
+  const { cart } = useCart();
   const [address, setAddress] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("wallet");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const placeOrder = async () => {
+  const proceedToPayment = async () => {
     if (!address.trim()) { setError("Please enter delivery address"); return; }
     setError("");
     setIsLoading(true);
     try {
-      const res = await fetch(`${getApiBase()}/orders`, {
+      const res = await fetch(`${getApiBase()}/payment/create-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ address, paymentMethod }),
+        body: JSON.stringify({ address }),
       });
       if (!res.ok) {
         const err = await res.json();
-        setError(err.error || "Order failed");
+        setError(err.error || "Failed to create order");
         return;
       }
-      const order = await res.json();
-      await fetchCart();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace({ pathname: "/order/[id]", params: { id: order.id } });
-    } catch { setError("Network error. Please try again."); } finally { setIsLoading(false); }
+      const data = await res.json();
+      Haptics.selectionAsync();
+      router.push({
+        pathname: "/razorpay-payment",
+        params: {
+          razorpayOrderId: data.razorpayOrderId,
+          amount: String(data.amount),
+          currency: data.currency,
+          keyId: data.keyId,
+          name: "DollDime",
+          description: "Doll Purchase",
+          dbOrderId: String(data.dbOrderId),
+          type: "order",
+        },
+      });
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -99,28 +106,16 @@ export default function CheckoutScreen() {
             />
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Payment Method</Text>
-            <View style={styles.paymentOptions}>
-              {PAYMENT_METHODS.map(method => (
-                <Pressable
-                  key={method.id}
-                  style={[styles.paymentOption, paymentMethod === method.id && styles.paymentOptionActive]}
-                  onPress={() => { setPaymentMethod(method.id); Haptics.selectionAsync(); }}
-                >
-                  <Ionicons
-                    name={method.icon}
-                    size={20}
-                    color={paymentMethod === method.id ? Colors.light.tint : Colors.light.textMuted}
-                  />
-                  <Text style={[styles.paymentLabel, paymentMethod === method.id && styles.paymentLabelActive]}>
-                    {method.label}
-                  </Text>
-                  {paymentMethod === method.id && (
-                    <Ionicons name="checkmark-circle" size={16} color={Colors.light.tint} style={{ marginLeft: "auto" }} />
-                  )}
-                </Pressable>
-              ))}
+          {/* Payment Info */}
+          <View style={[styles.section, styles.paymentInfo]}>
+            <View style={styles.paymentRow}>
+              <Ionicons name="lock-closed" size={18} color={Colors.light.tint} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.paymentTitle}>Secure Payment via Razorpay</Text>
+                <Text style={styles.paymentSubtitle}>
+                  UPI, Credit/Debit Card, Net Banking, Wallets — all supported
+                </Text>
+              </View>
             </View>
           </View>
 
@@ -137,13 +132,17 @@ export default function CheckoutScreen() {
             <Text style={styles.footerTotalLabel}>Total Amount</Text>
             <Text style={styles.footerTotalAmount}>₹{cart.total.toFixed(0)}</Text>
           </View>
-          <Pressable style={[styles.placeBtn, isLoading && styles.placeBtnDisabled]} onPress={placeOrder} disabled={isLoading}>
+          <Pressable
+            style={[styles.placeBtn, isLoading && styles.placeBtnDisabled]}
+            onPress={proceedToPayment}
+            disabled={isLoading}
+          >
             {isLoading ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
               <>
-                <Text style={styles.placeBtnText}>Place Order</Text>
-                <Ionicons name="checkmark" size={20} color="#fff" />
+                <Ionicons name="lock-closed" size={18} color="#fff" />
+                <Text style={styles.placeBtnText}>Pay ₹{cart.total.toFixed(0)}</Text>
               </>
             )}
           </Pressable>
@@ -164,6 +163,10 @@ const styles = StyleSheet.create({
     shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
     borderWidth: 1, borderColor: Colors.light.border,
   },
+  paymentInfo: { gap: 0, padding: 16 },
+  paymentRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  paymentTitle: { fontSize: 14, color: Colors.light.text, marginBottom: 2 },
+  paymentSubtitle: { fontSize: 12, color: Colors.light.textMuted, lineHeight: 18 },
   sectionTitle: { fontSize: 16, color: Colors.light.text },
   orderItem: { flexDirection: "row", alignItems: "center", gap: 8 },
   orderItemName: { flex: 1, fontSize: 13, color: Colors.light.textSecondary },
@@ -178,15 +181,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.surface, borderRadius: 12, padding: 14,
     minHeight: 80, textAlignVertical: "top", borderWidth: 1, borderColor: Colors.light.border,
   },
-  paymentOptions: { gap: 10 },
-  paymentOption: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    padding: 14, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.light.border,
-    backgroundColor: Colors.light.surface,
-  },
-  paymentOptionActive: { borderColor: Colors.light.tint, backgroundColor: "#FFF5F0" },
-  paymentLabel: { fontSize: 14, color: Colors.light.textSecondary },
-  paymentLabelActive: { color: Colors.light.tint, },
   errorBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#FFF0EE", borderRadius: 10, padding: 12 },
   errorText: { fontSize: 13, color: Colors.light.error, flex: 1 },
   footer: {
@@ -199,7 +193,7 @@ const styles = StyleSheet.create({
   footerTotalAmount: { fontSize: 22, color: Colors.light.text },
   placeBtn: {
     backgroundColor: Colors.light.tint, borderRadius: 14, paddingVertical: 16,
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
     shadowColor: Colors.light.tint, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 4,
   },
   placeBtnDisabled: { opacity: 0.6 },

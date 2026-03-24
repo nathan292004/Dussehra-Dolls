@@ -113,3 +113,11 @@ export function useAuth() {
 export function getApiBase() {
   return process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api` : "/api";
 }
+
+export async function getStoredToken(): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem("auth_token");
+  } catch {
+    return null;
+  }
+}

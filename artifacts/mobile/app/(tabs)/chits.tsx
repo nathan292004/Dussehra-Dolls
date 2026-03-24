@@ -115,6 +115,39 @@ export default function ChitsScreen() {
     openDurationModal(v);
   };
 
+  const handlePayEmi = async (enrollment: MyChitEnrollment) => {
+    if (!user) { router.push("/auth"); return; }
+    try {
+      const res = await fetch(`${getApiBase()}/payment/create-chit-payment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ enrollmentId: enrollment.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.error || "Failed to initiate payment");
+        return;
+      }
+      const data = await res.json();
+      Haptics.selectionAsync();
+      router.push({
+        pathname: "/razorpay-payment",
+        params: {
+          razorpayOrderId: data.razorpayOrderId,
+          amount: String(data.amount),
+          currency: data.currency,
+          keyId: data.keyId,
+          name: "DollDime",
+          description: `EMI – ${data.planName}`,
+          enrollmentId: String(enrollment.id),
+          type: "chit",
+        },
+      });
+    } catch {
+      alert("Network error. Please try again.");
+    }
+  };
+
   const handleEnroll = async () => {
     if (!user) { router.push("/auth"); return; }
     if (!selectedAmount) return;
@@ -278,6 +311,17 @@ export default function ChitsScreen() {
                       Next payment: {new Date(e.nextPaymentDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
                     </Text>
                   </View>
+                )}
+                {e.status === "active" && (
+                  <Pressable
+                    style={styles.payEmiBtn}
+                    onPress={() => handlePayEmi(e)}
+                  >
+                    <Ionicons name="lock-closed" size={16} color="#fff" />
+                    <Text style={styles.payEmiBtnText}>
+                      Pay EMI – {formatAmount(Math.round(e.chitPlan.monthlyContribution))}
+                    </Text>
+                  </Pressable>
                 )}
               </View>
             ))
@@ -443,6 +487,12 @@ const styles = StyleSheet.create({
   myStatValue: { fontSize: 14, color: Colors.light.text },
   nextPaymentRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   nextPaymentText: { fontSize: 12, color: Colors.light.textMuted },
+  payEmiBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: Colors.light.tint, borderRadius: 12, paddingVertical: 12,
+    shadowColor: Colors.light.tint, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 3,
+  },
+  payEmiBtnText: { fontSize: 15, color: "#fff" },
   overlay: {
     flex: 1, backgroundColor: "rgba(0,0,0,0.45)",
     alignItems: "center", justifyContent: "center", padding: 24,

@@ -55,6 +55,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
-    "@react-native-community/slider": "^5.1.2"
+    "@react-native-community/slider": "^5.1.2",
+    "react-native-webview": "^13.16.1"
   }
 }
