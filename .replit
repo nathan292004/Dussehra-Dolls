@@ -34,3 +34,4 @@ channel = "stable-25_05"
 [userenv.shared]
 TWILIO_FROM_NUMBER = "+16562700586"
 RAZORPAY_KEY_ID = "rzp_test_RlWsW514NQd6RL"
+TWILIO_WHATSAPP_FROM = "+14155238886"

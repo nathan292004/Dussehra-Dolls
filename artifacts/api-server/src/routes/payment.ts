@@ -2,9 +2,10 @@ import { Router } from "express";
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import { db } from "@workspace/db";
-import { ordersTable, cartItemsTable, productsTable, chitEnrollmentsTable, chitPlansTable, transactionsTable, walletsTable } from "@workspace/db/schema";
+import { ordersTable, cartItemsTable, productsTable, chitEnrollmentsTable, chitPlansTable, transactionsTable, walletsTable, usersTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { authMiddleware, AuthRequest } from "../middlewares/auth";
+import { notifyOrderConfirmed, notifyChitEmiPaid, notifyWalletTopUp } from "../lib/whatsapp-notifications";
 
 const router = Router();
 router.use(authMiddleware as any);
@@ -101,6 +102,22 @@ router.post("/verify-order", async (req: AuthRequest, res) => {
       description: `Order #${order.id} (Razorpay ${razorpayPaymentId})`,
     });
 
+    // Send WhatsApp order confirmation (non-blocking)
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+    if (user?.phone) {
+      notifyOrderConfirmed({
+        phone: user.phone,
+        name: user.name || "Customer",
+        orderId: order.id,
+        total: parseFloat(order.total),
+        items: (order.items as any[]).map(i => ({
+          productName: i.productName,
+          quantity: i.quantity,
+          price: i.price,
+        })),
+      }).catch(e => console.error("[WhatsApp] Order notify failed:", e));
+    }
+
     return res.json({ success: true, orderId: order.id, order: { ...order, total: parseFloat(order.total) } });
   } catch (err) {
     console.error("Razorpay verify error:", err);
@@ -193,6 +210,22 @@ router.post("/verify-chit-payment", async (req: AuthRequest, res) => {
       description: `Chit EMI – ${row.plan!.name} (${razorpayPaymentId})`,
     });
 
+    // Send WhatsApp chit EMI confirmation (non-blocking)
+    const [chitUser] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+    if (chitUser?.phone) {
+      const nextDate = isCompleted ? null : (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d; })();
+      notifyChitEmiPaid({
+        phone: chitUser.phone,
+        name: chitUser.name || "Customer",
+        planName: row.plan!.name,
+        emiAmount: emi,
+        totalPaid: newAmountPaid,
+        totalAmount: totalAmount,
+        isCompleted,
+        nextPaymentDate: nextDate,
+      }).catch(e => console.error("[WhatsApp] Chit EMI notify failed:", e));
+    }
+
     return res.json({ success: true, isCompleted, newAmountPaid });
   } catch (err) {
     console.error("Razorpay chit verify error:", err);
@@ -272,6 +305,18 @@ router.post("/verify-wallet-payment", async (req: AuthRequest, res) => {
       amount: amountInRupees.toFixed(2),
       description: `Wallet top-up via Razorpay (${razorpayPaymentId})`,
     });
+
+    // Fetch updated balance for notification
+    const [updatedWallet] = await db.select().from(walletsTable).where(eq(walletsTable.userId, req.userId!)).limit(1);
+    const [walletUser] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+    if (walletUser?.phone) {
+      notifyWalletTopUp({
+        phone: walletUser.phone,
+        name: walletUser.name || "Customer",
+        credited: amountInRupees,
+        newBalance: parseFloat(updatedWallet?.balance ?? "0"),
+      }).catch(e => console.error("[WhatsApp] Wallet notify failed:", e));
+    }
 
     return res.json({ success: true, credited: amountInRupees });
   } catch (err) {
