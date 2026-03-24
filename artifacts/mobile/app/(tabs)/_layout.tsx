@@ -14,6 +14,7 @@ function BadgeDot() {
   return <View style={{ position: "absolute", top: -2, right: -2, width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.light.tint }} />;
 }
 
+// iOS-only: uses SF Symbols + Liquid Glass tab bar (iOS 26+)
 function NativeTabLayout() {
   return (
     <NativeTabs>
@@ -41,9 +42,9 @@ function NativeTabLayout() {
   );
 }
 
+// Android + Web + older iOS: Ionicons with outline→filled active state
 function ClassicTabLayout() {
   const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
   const insets = useSafeAreaInsets();
@@ -61,33 +62,32 @@ function ClassicTabLayout() {
           borderTopWidth: 1,
           borderTopColor: Colors.light.border,
           elevation: 0,
-          paddingBottom: insets.bottom,
-          ...(isWeb ? { height: 84 } : {}),
+          paddingBottom: isWeb ? 0 : insets.bottom,
+          height: isWeb ? 84 : 56 + insets.bottom,
         },
         tabBarBackground: () =>
           isIOS ? (
-            <BlurView
-              intensity={80}
-              tint="light"
-              style={StyleSheet.absoluteFill}
-            />
+            <BlurView intensity={80} tint="light" style={StyleSheet.absoluteFill} />
           ) : isWeb ? (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: "#FFF9F0" }]} />
           ) : null,
-        tabBarLabelStyle: {
-          fontSize: 10,
-        },
+        tabBarLabelStyle: { fontSize: 11 },
+        tabBarIconStyle: { marginTop: 2 },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: "Shop",
-          tabBarIcon: ({ color, size }) =>
+          tabBarIcon: ({ color, size, focused }) =>
             isIOS ? (
-              <SymbolView name="house" tintColor={color} size={size} />
+              <SymbolView name={focused ? "house.fill" : "house"} tintColor={color} size={size} />
             ) : (
-              <Ionicons name="storefront-outline" size={size} color={color} />
+              <Ionicons
+                name={focused ? "storefront" : "storefront-outline"}
+                size={size}
+                color={color}
+              />
             ),
         }}
       />
@@ -95,11 +95,15 @@ function ClassicTabLayout() {
         name="chits"
         options={{
           title: "Chits",
-          tabBarIcon: ({ color, size }) =>
+          tabBarIcon: ({ color, size, focused }) =>
             isIOS ? (
-              <SymbolView name="chart.pie" tintColor={color} size={size} />
+              <SymbolView name={focused ? "chart.pie.fill" : "chart.pie"} tintColor={color} size={size} />
             ) : (
-              <Ionicons name="diamond-outline" size={size} color={color} />
+              <Ionicons
+                name={focused ? "diamond" : "diamond-outline"}
+                size={size}
+                color={color}
+              />
             ),
         }}
       />
@@ -109,11 +113,15 @@ function ClassicTabLayout() {
           title: "Cart",
           tabBarBadge: cart.itemCount > 0 ? cart.itemCount : undefined,
           tabBarBadgeStyle: { backgroundColor: Colors.light.tint, color: "#fff", fontSize: 10 },
-          tabBarIcon: ({ color, size }) =>
+          tabBarIcon: ({ color, size, focused }) =>
             isIOS ? (
-              <SymbolView name="cart" tintColor={color} size={size} />
+              <SymbolView name={focused ? "cart.fill" : "cart"} tintColor={color} size={size} />
             ) : (
-              <Ionicons name="bag-outline" size={size} color={color} />
+              <Ionicons
+                name={focused ? "bag" : "bag-outline"}
+                size={size}
+                color={color}
+              />
             ),
         }}
       />
@@ -121,11 +129,15 @@ function ClassicTabLayout() {
         name="wallet"
         options={{
           title: "Wallet",
-          tabBarIcon: ({ color, size }) =>
+          tabBarIcon: ({ color, size, focused }) =>
             isIOS ? (
-              <SymbolView name="wallet.pass" tintColor={color} size={size} />
+              <SymbolView name={focused ? "wallet.pass.fill" : "wallet.pass"} tintColor={color} size={size} />
             ) : (
-              <Ionicons name="wallet-outline" size={size} color={color} />
+              <Ionicons
+                name={focused ? "wallet" : "wallet-outline"}
+                size={size}
+                color={color}
+              />
             ),
         }}
       />
@@ -133,11 +145,15 @@ function ClassicTabLayout() {
         name="profile"
         options={{
           title: "Profile",
-          tabBarIcon: ({ color, size }) =>
+          tabBarIcon: ({ color, size, focused }) =>
             isIOS ? (
-              <SymbolView name="person" tintColor={color} size={size} />
+              <SymbolView name={focused ? "person.fill" : "person"} tintColor={color} size={size} />
             ) : (
-              <Ionicons name="person-outline" size={size} color={color} />
+              <Ionicons
+                name={focused ? "person" : "person-outline"}
+                size={size}
+                color={color}
+              />
             ),
         }}
       />
@@ -146,7 +162,10 @@ function ClassicTabLayout() {
 }
 
 export default function TabLayout() {
-  if (isLiquidGlassAvailable()) {
+  // NativeTabLayout uses SF Symbols which are iOS-only.
+  // Explicitly guard with Platform.OS === "ios" so Android never
+  // falls into the SF-Symbol path and gets poor-quality fallback glyphs.
+  if (Platform.OS === "ios" && isLiquidGlassAvailable()) {
     return <NativeTabLayout />;
   }
   return <ClassicTabLayout />;
