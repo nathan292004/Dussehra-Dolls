@@ -11,6 +11,7 @@ export default function PaymentResultScreen() {
   const params = useLocalSearchParams<{ success: string; message?: string; type: string; isCompleted?: string }>();
   const isSuccess = params.success === "true";
   const isChit = params.type === "chit";
+  const isWallet = params.type === "wallet";
   const isCompleted = params.isCompleted === "true";
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
@@ -35,7 +36,9 @@ export default function PaymentResultScreen() {
 
         <Text style={styles.title}>
           {isSuccess
-            ? isChit
+            ? isWallet
+              ? "Money Added!"
+              : isChit
               ? isCompleted ? "Chit Plan Complete!" : "EMI Paid!"
               : "Order Placed!"
             : "Payment Failed"}
@@ -43,7 +46,9 @@ export default function PaymentResultScreen() {
 
         <Text style={styles.subtitle}>
           {isSuccess
-            ? isChit
+            ? isWallet
+              ? "Your wallet has been topped up successfully."
+              : isChit
               ? isCompleted
                 ? "Congratulations! You've completed your chit plan."
                 : "Your EMI has been recorded. Keep it up!"
@@ -52,7 +57,12 @@ export default function PaymentResultScreen() {
         </Text>
 
         <View style={styles.btnGroup}>
-          {isSuccess && !isChit && (
+          {isSuccess && isWallet && (
+            <Pressable style={styles.primaryBtn} onPress={() => router.push("/(tabs)/wallet")}>
+              <Text style={styles.primaryBtnText}>View Wallet</Text>
+            </Pressable>
+          )}
+          {isSuccess && !isChit && !isWallet && (
             <Pressable style={styles.primaryBtn} onPress={() => router.push("/(tabs)")}>
               <Text style={styles.primaryBtnText}>Continue Shopping</Text>
             </Pressable>

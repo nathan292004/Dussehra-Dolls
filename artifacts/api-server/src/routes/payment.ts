@@ -2,8 +2,8 @@ import { Router } from "express";
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import { db } from "@workspace/db";
-import { ordersTable, cartItemsTable, productsTable, chitEnrollmentsTable, chitPlansTable, transactionsTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { ordersTable, cartItemsTable, productsTable, chitEnrollmentsTable, chitPlansTable, transactionsTable, walletsTable } from "@workspace/db/schema";
+import { eq, sql } from "drizzle-orm";
 import { authMiddleware, AuthRequest } from "../middlewares/auth";
 
 const router = Router();
@@ -196,6 +196,86 @@ router.post("/verify-chit-payment", async (req: AuthRequest, res) => {
     return res.json({ success: true, isCompleted, newAmountPaid });
   } catch (err) {
     console.error("Razorpay chit verify error:", err);
+    return res.status(500).json({ error: "Payment verification failed" });
+  }
+});
+
+// Create Razorpay order for wallet top-up
+router.post("/create-wallet-payment", async (req: AuthRequest, res) => {
+  try {
+    const { amount } = req.body;
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ error: "Invalid amount" });
+    }
+
+    const rzpOrder = await razorpay.orders.create({
+      amount: Math.round(parsedAmount * 100),
+      currency: "INR",
+      notes: { userId: String(req.userId), purpose: "wallet_topup" },
+    });
+
+    return res.json({
+      razorpayOrderId: rzpOrder.id,
+      amount: rzpOrder.amount,
+      currency: rzpOrder.currency,
+      keyId: process.env.RAZORPAY_KEY_ID,
+    });
+  } catch (err) {
+    console.error("Razorpay wallet order error:", err);
+    return res.status(500).json({ error: "Failed to create wallet payment order" });
+  }
+});
+
+// Verify wallet top-up payment and credit balance
+router.post("/verify-wallet-payment", async (req: AuthRequest, res) => {
+  try {
+    const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body;
+
+    const body = razorpayOrderId + "|" + razorpayPaymentId;
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET!)
+      .update(body)
+      .digest("hex");
+
+    if (expectedSignature !== razorpaySignature) {
+      return res.status(400).json({ error: "Payment verification failed" });
+    }
+
+    // Fetch order from Razorpay to get the amount
+    const rzpOrder = await razorpay.orders.fetch(razorpayOrderId);
+    const amountInRupees = (rzpOrder.amount_paid as number) / 100;
+
+    // Credit wallet — upsert
+    const [existing] = await db
+      .select()
+      .from(walletsTable)
+      .where(eq(walletsTable.userId, req.userId!))
+      .limit(1);
+
+    if (existing) {
+      await db
+        .update(walletsTable)
+        .set({ balance: sql`${walletsTable.balance} + ${amountInRupees}` })
+        .where(eq(walletsTable.userId, req.userId!));
+    } else {
+      await db.insert(walletsTable).values({
+        userId: req.userId!,
+        balance: amountInRupees.toFixed(2),
+      });
+    }
+
+    // Log transaction
+    await db.insert(transactionsTable).values({
+      userId: req.userId!,
+      type: "credit",
+      amount: amountInRupees.toFixed(2),
+      description: `Wallet top-up via Razorpay (${razorpayPaymentId})`,
+    });
+
+    return res.json({ success: true, credited: amountInRupees });
+  } catch (err) {
+    console.error("Razorpay wallet verify error:", err);
     return res.status(500).json({ error: "Payment verification failed" });
   }
 });

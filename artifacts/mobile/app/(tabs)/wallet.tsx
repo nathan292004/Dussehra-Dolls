@@ -60,18 +60,33 @@ export default function WalletScreen() {
     if (isNaN(amt) || amt <= 0) return;
     setAdding(true);
     try {
-      const res = await fetch(`${getApiBase()}/wallet`, {
+      const res = await fetch(`${getApiBase()}/payment/create-wallet-payment`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ amount: amt }),
       });
-      if (res.ok) {
-        setWallet(await res.json());
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setShowAddModal(false);
-        setAmount("");
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.error || "Failed to initiate payment");
+        return;
       }
-    } catch { /* ignore */ } finally { setAdding(false); }
+      const data = await res.json();
+      Haptics.selectionAsync();
+      setShowAddModal(false);
+      setAmount("");
+      router.push({
+        pathname: "/razorpay-payment",
+        params: {
+          razorpayOrderId: data.razorpayOrderId,
+          amount: String(data.amount),
+          currency: data.currency,
+          keyId: data.keyId,
+          name: "DollDime",
+          description: `Add ₹${amt.toFixed(0)} to Wallet`,
+          type: "wallet",
+        },
+      });
+    } catch { alert("Network error. Please try again."); } finally { setAdding(false); }
   };
 
   if (!user) {
@@ -186,7 +201,10 @@ export default function WalletScreen() {
               onPress={addFunds}
               disabled={!amount || adding}
             >
-              {adding ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.addBtnText}>Add ₹{amount || "0"}</Text>}
+              {adding
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={styles.addBtnText}>Pay ₹{amount || "0"} via Razorpay</Text>
+              }
             </Pressable>
           </View>
         </Pressable>
