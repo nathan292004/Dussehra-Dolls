@@ -42,9 +42,18 @@ export async function sendSms(to: string, body: string) {
 export async function sendWhatsApp(to: string, body: string) {
   const rawFrom = process.env.TWILIO_WHATSAPP_FROM || "+14155238886";
   const from = "whatsapp:" + rawFrom.replace(/^whatsapp:/, "");
-  const toWa = "whatsapp:" + to.replace(/^whatsapp:/, "");
 
-  console.log(`[Twilio] Sending WhatsApp to ${toWa}`);
+  // If a test number is configured, redirect ALL WhatsApp messages to it
+  const testOverride = process.env.WHATSAPP_TEST_NUMBER;
+  const actualTo = testOverride ? testOverride : to;
+  const toWa = "whatsapp:" + actualTo.replace(/^whatsapp:/, "");
+
+  if (testOverride) {
+    console.log(`[Twilio] WhatsApp TEST MODE — redirecting ${to} → ${toWa}`);
+  } else {
+    console.log(`[Twilio] Sending WhatsApp to ${toWa}`);
+  }
+
   try {
     const result = await callTwilio(toWa, from, body);
     console.log("[Twilio] WhatsApp sent, SID:", result.sid);

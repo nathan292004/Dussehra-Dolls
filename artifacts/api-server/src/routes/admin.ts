@@ -5,6 +5,12 @@ import {
   chitPlansTable, chitEnrollmentsTable, vendorsTable,
 } from "@workspace/db/schema";
 import { eq, lt, count, sum, desc, sql } from "drizzle-orm";
+import {
+  notifyOrderConfirmed,
+  notifyChitEmiPaid,
+  notifyWalletTopUp,
+  notifyChitDueReminder,
+} from "../lib/whatsapp-notifications";
 
 const router = Router();
 
@@ -380,6 +386,69 @@ router.get("/chit-subscriptions", async (_req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── WhatsApp test endpoint ───────────────────────────────────────────────────
+// POST /api/admin/test-whatsapp?type=order|chit|wallet|reminder
+// Sends a sample WhatsApp notification to WHATSAPP_TEST_NUMBER
+router.post("/test-whatsapp", async (req, res) => {
+  const testNumber = process.env.WHATSAPP_TEST_NUMBER;
+  if (!testNumber) {
+    return res.status(400).json({ error: "WHATSAPP_TEST_NUMBER env var not set" });
+  }
+
+  const type = (req.query.type as string) || "order";
+
+  try {
+    let result: any;
+
+    if (type === "order") {
+      result = await notifyOrderConfirmed({
+        phone: testNumber,
+        name: "Test Customer",
+        orderId: 1001,
+        total: 2499,
+        items: [
+          { productName: "Navratri Special Doll Set", quantity: 2, price: 999 },
+          { productName: "Dussehra Festive Doll", quantity: 1, price: 501 },
+        ],
+      });
+    } else if (type === "chit") {
+      result = await notifyChitEmiPaid({
+        phone: testNumber,
+        name: "Test Customer",
+        planName: "Gold Savings – ₹2,000/mo",
+        emiAmount: 2000,
+        totalPaid: 6000,
+        totalAmount: 24000,
+        isCompleted: false,
+        nextPaymentDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      });
+    } else if (type === "wallet") {
+      result = await notifyWalletTopUp({
+        phone: testNumber,
+        name: "Test Customer",
+        credited: 1000,
+        newBalance: 3500,
+      });
+    } else if (type === "reminder") {
+      result = await notifyChitDueReminder({
+        phone: testNumber,
+        name: "Test Customer",
+        planName: "Gold Savings – ₹2,000/mo",
+        emiAmount: 2000,
+        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        daysLeft: 1,
+      });
+    } else {
+      return res.status(400).json({ error: "type must be: order | chit | wallet | reminder" });
+    }
+
+    return res.json({ success: true, type, to: testNumber, sid: (result as any)?.sid });
+  } catch (err: any) {
+    console.error("[WhatsApp test] Error:", err);
+    return res.status(500).json({ error: err.message || "Failed to send test message" });
   }
 });
 
