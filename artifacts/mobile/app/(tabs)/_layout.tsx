@@ -1,59 +1,54 @@
 import { BlurView } from "expo-blur";
 import { Tabs } from "expo-router";
-import { SymbolView } from "expo-symbols";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
-import { Platform, StyleSheet, View, useColorScheme } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { useCart } from "@/context/cart";
 
-// On Android: always solid/filled icons — active = brand color, inactive = muted grey
-// On iOS: SF Symbols with fill state
-// This guarantees crisp, professional icons on every platform
+// Ionicons works perfectly on iOS, Android, and Web.
+// expo-symbols (SF Symbols) is iOS-native only — importing it on Android
+// crashes the module even when guarded with Platform.OS checks.
+// We use Ionicons everywhere for maximum compatibility.
+
 type IoniconsName = React.ComponentProps<typeof Ionicons>["name"];
 
 const TABS: {
   name: string;
   title: string;
-  iosFilled: string;
-  iosOutline: string;
-  androidIcon: IoniconsName;
+  iconActive: IoniconsName;
+  iconInactive: IoniconsName;
 }[] = [
   {
     name: "index",
     title: "Shop",
-    iosFilled: "storefront.fill",
-    iosOutline: "storefront",
-    androidIcon: "storefront",
+    iconActive: "storefront",
+    iconInactive: "storefront-outline",
   },
   {
     name: "chits",
     title: "Chits",
-    iosFilled: "chart.pie.fill",
-    iosOutline: "chart.pie",
-    androidIcon: "diamond",
+    iconActive: "diamond",
+    iconInactive: "diamond-outline",
   },
   {
     name: "cart",
     title: "Cart",
-    iosFilled: "cart.fill",
-    iosOutline: "cart",
-    androidIcon: "bag",
+    iconActive: "bag",
+    iconInactive: "bag-outline",
   },
   {
     name: "wallet",
     title: "Wallet",
-    iosFilled: "wallet.pass.fill",
-    iosOutline: "wallet.pass",
-    androidIcon: "wallet",
+    iconActive: "wallet",
+    iconInactive: "wallet-outline",
   },
   {
     name: "profile",
     title: "Profile",
-    iosFilled: "person.fill",
-    iosOutline: "person",
-    androidIcon: "person",
+    iconActive: "person-circle",
+    iconInactive: "person-circle-outline",
   },
 ];
 
@@ -68,20 +63,20 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: Colors.light.tint,
-        tabBarInactiveTintColor: Colors.light.tabIconDefault,
+        tabBarInactiveTintColor: "#9E9E9E",
         tabBarStyle: {
           position: "absolute",
           backgroundColor: isIOS ? "transparent" : "#FFF9F0",
           borderTopWidth: 1,
-          borderTopColor: Colors.light.border,
-          elevation: 8,
+          borderTopColor: "#E8D5C4",
+          elevation: 12,
           shadowColor: "#000",
           shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.06,
+          shadowOpacity: 0.08,
           shadowRadius: 8,
-          paddingBottom: isWeb ? 0 : isIOS ? insets.bottom : 6,
-          paddingTop: 6,
-          height: isWeb ? 84 : isIOS ? 56 + insets.bottom : 62,
+          paddingBottom: isWeb ? 0 : isIOS ? insets.bottom : 8,
+          paddingTop: 8,
+          height: isWeb ? 84 : isIOS ? 56 + insets.bottom : 64,
         },
         tabBarBackground: () =>
           isIOS ? (
@@ -89,6 +84,7 @@ export default function TabLayout() {
           ) : null,
         tabBarLabelStyle: {
           fontSize: 11,
+          fontWeight: "600",
           marginTop: 2,
         },
       }}
@@ -109,25 +105,13 @@ export default function TabLayout() {
                   },
                 }
               : {}),
-            tabBarIcon: ({ color, focused }) => {
-              if (isIOS) {
-                return (
-                  <SymbolView
-                    name={focused ? tab.iosFilled : tab.iosOutline}
-                    tintColor={color}
-                    size={26}
-                  />
-                );
-              }
-              // Android & Web: always solid filled, rely on color for active/inactive
-              return (
-                <Ionicons
-                  name={tab.androidIcon}
-                  size={26}
-                  color={color}
-                />
-              );
-            },
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons
+                name={focused ? tab.iconActive : tab.iconInactive}
+                size={26}
+                color={color}
+              />
+            ),
           }}
         />
       ))}
