@@ -29,7 +29,13 @@ function normalizePhone(phone: string): string {
 router.post("/send-otp", async (req, res) => {
   try {
     const { phone } = req.body;
-    if (!phone) return res.status(400).json({ error: "Phone number required" });
+    if (!phone || typeof phone !== "string") {
+      return res.status(400).json({ error: "Phone number required" });
+    }
+    const sanitized = phone.replace(/[^\d+\-\s()]/g, "").trim();
+    if (sanitized.length < 10 || sanitized.length > 15) {
+      return res.status(400).json({ error: "Invalid phone number format" });
+    }
 
     const normalized = normalizePhone(phone);
 
@@ -72,6 +78,18 @@ router.post("/register", async (req, res) => {
     const { name, phone, password, otp } = req.body;
     if (!name || !phone || !password || !otp) {
       return res.status(400).json({ error: "Name, phone, password and OTP are required" });
+    }
+    if (typeof name !== "string" || name.trim().length < 2 || name.length > 100) {
+      return res.status(400).json({ error: "Name must be 2-100 characters" });
+    }
+    if (typeof phone !== "string" || phone.replace(/\D/g, "").length < 10) {
+      return res.status(400).json({ error: "Invalid phone number" });
+    }
+    if (typeof password !== "string" || password.length < 6 || password.length > 128) {
+      return res.status(400).json({ error: "Password must be 6-128 characters" });
+    }
+    if (typeof otp !== "string" || !/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ error: "OTP must be a 6-digit code" });
     }
 
     const normalized = normalizePhone(phone);
@@ -135,6 +153,12 @@ router.post("/login", async (req, res) => {
     const { phone, password } = req.body;
     if (!phone || !password) {
       return res.status(400).json({ error: "Phone and password required" });
+    }
+    if (typeof phone !== "string" || phone.replace(/\D/g, "").length < 10) {
+      return res.status(400).json({ error: "Invalid phone number" });
+    }
+    if (typeof password !== "string" || password.length < 1 || password.length > 128) {
+      return res.status(400).json({ error: "Invalid password" });
     }
 
     const normalized = normalizePhone(phone);

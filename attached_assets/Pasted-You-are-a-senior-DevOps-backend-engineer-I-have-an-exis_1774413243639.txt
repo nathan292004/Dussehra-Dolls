@@ -1,0 +1,123 @@
+You are a senior DevOps/backend engineer. I have an existing mobile application 
+codebase (describe your stack: e.g. Node.js + React Native / Django + Flutter / etc.).
+
+Your task is to harden this application to production grade. Work through each section 
+below systematically. For every change, explain what you're doing and why it matters.
+
+─────────────────────────────────────────
+1. REVERSE PROXY & LOAD BALANCER (HAProxy / NGINX)
+─────────────────────────────────────────
+- Add an HAProxy or NGINX config that:
+  - Terminates TLS (self-signed cert for now, Let's Encrypt-ready)
+  - Distributes traffic across multiple app instances (round-robin or least-conn)
+  - Adds health-check endpoints (`/healthz`, `/readyz`)
+  - Sets connection limits, timeouts (connect 5s, client 30s, server 30s)
+  - Enables HTTP/2
+  - Adds security headers: HSTS, X-Frame-Options, X-Content-Type-Options, 
+    Content-Security-Policy
+- Set up Keepalived (or equivalent) for HAProxy HA with a Virtual IP so a standby 
+  LB can take over instantly on failure.
+
+─────────────────────────────────────────
+2. CONTAINERISATION & ORCHESTRATION
+─────────────────────────────────────────
+- Write a production-quality Dockerfile (multi-stage build, non-root user, minimal 
+  base image, no dev dependencies in final image)
+- Write a docker-compose.yml with:
+  - App service (3 replicas), HAProxy, Redis, Postgres (or your DB)
+  - Named volumes, restart: unless-stopped, resource limits (CPU + memory)
+- Optionally: provide a Kubernetes deployment.yaml + service.yaml + hpa.yaml for 
+  horizontal pod autoscaling with min=2, max=10 based on CPU >70%.
+
+─────────────────────────────────────────
+3. DATABASE HIGH AVAILABILITY
+─────────────────────────────────────────
+- Configure Postgres streaming replication (1 primary + 1 read replica) with 
+  automatic failover via Patroni or repmgr.
+- Add PgBouncer connection pooling in front of Postgres.
+- Write DB migration strategy: use a separate migration job that runs before the 
+  app starts, with rollback support.
+- Ensure all secrets (DB passwords, API keys) come from environment variables or 
+  a secrets manager (Vault / AWS Secrets Manager). No hardcoded credentials.
+
+─────────────────────────────────────────
+4. CACHING LAYER
+─────────────────────────────────────────
+- Add Redis for:
+  - Session storage (replace any in-memory/cookie-only sessions)
+  - Rate limiting (token bucket or sliding window per IP and per user)
+  - Cache expensive API responses with a configurable TTL
+- Use Redis Sentinel or a Redis Cluster config for HA.
+
+─────────────────────────────────────────
+5. SECURITY HARDENING
+─────────────────────────────────────────
+- Enable rate limiting at the NGINX/HAProxy level (e.g. 100 req/min per IP)
+- Add CORS configuration restricted to known origins
+- Ensure all DB queries use parameterised statements (audit existing code)
+- Add helmet.js (or framework equivalent) for HTTP security headers
+- Set up fail2ban rules for brute-force protection on auth endpoints
+- Implement input validation and sanitisation on all API inputs
+- Rotate and externalize all secrets; add a `.env.example` with no real values
+
+─────────────────────────────────────────
+6. OBSERVABILITY STACK
+─────────────────────────────────────────
+- Add structured JSON logging (every request: method, path, status, latency, 
+  trace ID). Ship logs to stdout so they can be collected by Loki/ELK.
+- Instrument the app with Prometheus metrics:
+  - HTTP request count and latency (p50, p95, p99)
+  - Active DB connections, cache hit/miss ratio
+  - Custom business metrics (e.g. active sessions, sign-ups/min)
+- Add OpenTelemetry tracing with a trace ID that propagates through every service 
+  call and is included in log lines.
+- Provide a Grafana dashboard JSON for the above metrics.
+- Set up alerting rules:
+  - Error rate > 1% over 5 min
+  - p99 latency > 2s
+  - DB replica lag > 30s
+  - Pod/container restart count > 3 in 10 min
+
+─────────────────────────────────────────
+7. CI/CD PIPELINE
+─────────────────────────────────────────
+- Write a GitHub Actions (or GitLab CI) pipeline that:
+  - Runs lint, unit tests, integration tests on every PR
+  - Builds and pushes a Docker image tagged with git SHA
+  - On merge to main: runs a blue-green or canary deployment (shift 10% traffic, 
+    monitor for 5 min, then promote or rollback automatically)
+  - Runs a smoke test (`/healthz` returns 200) before promoting
+  - Sends a Slack or email notification on deploy success/failure
+
+─────────────────────────────────────────
+8. GRACEFUL OPERATIONS
+─────────────────────────────────────────
+- Add graceful shutdown: on SIGTERM, stop accepting new connections, finish 
+  in-flight requests (30s timeout), then exit cleanly.
+- Add readiness and liveness probes (HTTP-based, used by K8s and the load balancer).
+- Implement database connection retry with exponential backoff on startup.
+- Add a `/healthz` (liveness) and `/readyz` (readiness) endpoint that checks DB, 
+  Redis, and any critical dependencies.
+
+─────────────────────────────────────────
+9. BACKUP & DISASTER RECOVERY
+─────────────────────────────────────────
+- Write a cron job (or K8s CronJob) that:
+  - Takes a Postgres dump every 6 hours
+  - Uploads it to S3/GCS with a 30-day retention policy
+  - Alerts if a backup hasn't succeeded in 12 hours
+- Document a runbook for: restoring from backup, manually failing over the DB, 
+  and rolling back a bad deploy.
+
+─────────────────────────────────────────
+10. FINAL CHECKLIST
+─────────────────────────────────────────
+After implementing the above, output a production readiness checklist (with 
+pass/fail for each item based on what was implemented) covering:
+  TLS termination · Health checks · LB failover · DB HA · Connection pooling ·
+  Secrets management · Rate limiting · Structured logging · Metrics + alerts ·
+  Distributed tracing · CI/CD pipeline · Graceful shutdown · Backups ·
+  Input validation · Security headers
+
+For any item that could not be implemented automatically, add a TODO with the 
+exact manual step required.
