@@ -26,7 +26,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const SidebarContent = () => (
     <>
       <div className="p-6 flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-gold p-0.5 shadow-lg">
+        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-sidebar-active to-gold p-0.5 shadow-lg">
           <div className="h-full w-full bg-sidebar rounded-[10px] flex items-center justify-center">
             <img src={`${import.meta.env.BASE_URL}images/logo.png`} alt="Logo" className="w-6 h-6 object-contain" />
           </div>
@@ -51,9 +51,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 )}
               >
                 {isActive && (
-                  <motion.div layoutId="activeTab" className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />
+                  <motion.div layoutId="activeTab" className="absolute left-0 top-0 bottom-0 w-1 bg-sidebar-active" />
                 )}
-                <item.icon className={cn("h-4 w-4", isActive ? "text-primary" : "text-sidebar-foreground group-hover:text-white")} />
+                <item.icon className={cn("h-4 w-4", isActive ? "text-sidebar-active" : "text-sidebar-foreground group-hover:text-white")} />
                 <span className="font-medium text-sm">{item.label}</span>
               </div>
             </Link>

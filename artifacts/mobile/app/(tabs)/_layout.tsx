@@ -53,12 +53,12 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: Colors.light.tint,
-        tabBarInactiveTintColor: "#AAAAAA",
+        tabBarInactiveTintColor: "#9E9E99",
         tabBarStyle: {
           position: "absolute",
-          backgroundColor: "#FFF9F0",
+          backgroundColor: "#FFFFFF",
           borderTopWidth: 1,
-          borderTopColor: "#E8D5C4",
+          borderTopColor: "#E8E8E3",
           height: tabBarHeight,
           paddingBottom: isWeb ? 4 : isIOS ? insets.bottom : 8,
           paddingTop: 4,
@@ -114,6 +114,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   iconWrapperActive: {
-    backgroundColor: "#F0D5C8",
+    backgroundColor: "rgba(46,139,87,0.15)",
   },
 });

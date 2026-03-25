@@ -113,7 +113,7 @@ function WebRazorpayPayment({ params }: { params: PaymentParams }) {
       name: "DollDime",
       description: params.description || "Payment",
       order_id: params.razorpayOrderId,
-      theme: { color: "#C84B1A" },
+      theme: { color: "#2E8B57" },
       modal: {
         ondismiss: () => {
           router.back();
@@ -251,7 +251,7 @@ function NativeRazorpayPayment({ params }: { params: PaymentParams }) {
         name: "DollDime",
         description: "${params.description || "Payment"}",
         order_id: "${params.razorpayOrderId}",
-        theme: { color: "#C84B1A" },
+        theme: { color: "#2E8B57" },
         modal: { ondismiss: function() {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: "dismiss" }));
         }},

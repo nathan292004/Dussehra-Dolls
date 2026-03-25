@@ -162,7 +162,7 @@ const styles = StyleSheet.create({
   profileCard: {
     flexDirection: "row", alignItems: "center", gap: 16,
     backgroundColor: "#fff", borderRadius: 20, padding: 20,
-    shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 4 },
+    shadowColor: "#000", shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08, shadowRadius: 12, elevation: 3,
     borderWidth: 1, borderColor: Colors.light.border,
   },
@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
   profilePhone: { fontSize: 13, color: Colors.light.textMuted },
   menuSection: {
     backgroundColor: "#fff", borderRadius: 20, overflow: "hidden",
-    shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 2 },
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
     borderWidth: 1, borderColor: Colors.light.border,
   },

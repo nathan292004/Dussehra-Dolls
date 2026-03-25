@@ -102,7 +102,7 @@ const styles = StyleSheet.create({
   title: { flex: 1, textAlign: "center", fontSize: 18, color: Colors.light.text },
   orderCard: {
     backgroundColor: "#fff", borderRadius: 16, padding: 16, gap: 10,
-    shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
     borderWidth: 1, borderColor: Colors.light.border,
   },
   orderHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },

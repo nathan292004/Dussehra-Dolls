@@ -160,7 +160,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, gap: 20 },
   section: {
     backgroundColor: "#fff", borderRadius: 20, padding: 16, gap: 12,
-    shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
     borderWidth: 1, borderColor: Colors.light.border,
   },
   paymentInfo: { gap: 0, padding: 16 },

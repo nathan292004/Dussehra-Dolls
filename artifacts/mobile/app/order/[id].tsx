@@ -191,7 +191,7 @@ const styles = StyleSheet.create({
   successSubtitle: { fontSize: 14, color: "rgba(255,255,255,0.85)" },
   section: {
     backgroundColor: "#fff", borderRadius: 20, padding: 16, gap: 14,
-    shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
     borderWidth: 1, borderColor: Colors.light.border,
   },
   sectionTitle: { fontSize: 16, color: Colors.light.text },

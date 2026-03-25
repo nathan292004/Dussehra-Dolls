@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
   },
   qtyBtn: {
     width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center",
-    backgroundColor: "#fff", shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3, elevation: 1,
+    backgroundColor: "#fff", shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3, elevation: 1,
   },
   qty: { fontSize: 17, color: Colors.light.text, minWidth: 24, textAlign: "center" },
   addBtn: {
