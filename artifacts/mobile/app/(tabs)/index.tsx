@@ -80,9 +80,24 @@ export default function ShopScreen() {
           <Text style={styles.greeting}>Namaste {user?.name?.split(" ")[0] ?? ""}</Text>
           <Text style={styles.headerTitle}>DollDime</Text>
         </View>
-        <Pressable style={styles.searchIcon} onPress={() => router.push("/profile")}>
-          <Ionicons name="person-circle-outline" size={32} color={Colors.light.tint} />
+        <Pressable style={styles.avatarBtn} onPress={() => router.push("/profile")}>
+          <View style={styles.avatarCircle}>
+            <Ionicons name="person" size={16} color={Colors.light.tint} />
+          </View>
         </Pressable>
+      </View>
+
+      <View style={styles.heroBanner}>
+        <View style={styles.heroBadge}>
+          <Text style={styles.heroBadgeText}>FESTIVE SEASON</Text>
+        </View>
+        <Text style={styles.heroTitle}>Artisan Collection</Text>
+        <Text style={styles.heroSubtitle}>Handcrafted dolls from master craftspeople</Text>
+        <Pressable style={styles.heroCta}>
+          <Text style={styles.heroCtaText}>Explore Now</Text>
+        </Pressable>
+        <View style={styles.heroCircle1} />
+        <View style={styles.heroCircle2} />
       </View>
 
       <View style={styles.searchBar}>
@@ -116,7 +131,10 @@ export default function ShopScreen() {
 
       {featured.length > 0 && selectedCategory === "All" && !search && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Featured Picks</Text>
+          <View style={styles.sectionRow}>
+            <Text style={styles.sectionTitle}>Featured Picks</Text>
+            <Text style={styles.seeAll}>See all</Text>
+          </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingHorizontal: 16 }}>
             {featured.map(p => (
               <View key={p.id} style={{ width: 200 }}>
@@ -158,7 +176,7 @@ export default function ShopScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.light.tint} />}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Ionicons name="cube-outline" size={56} color={Colors.light.border} />
+            <Ionicons name="cube-outline" size={56} color={Colors.light.borderStrong} />
             <Text style={styles.emptyText}>No products found</Text>
           </View>
         }
@@ -185,35 +203,100 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     paddingHorizontal: 16,
     paddingBottom: 12,
-    backgroundColor: Colors.light.background,
   },
   greeting: {
-    fontSize: 13,
+    fontSize: 12,
     color: Colors.light.textMuted,
   },
   headerTitle: {
-    fontSize: 26,
-    color: Colors.light.tint,
-    letterSpacing: -0.5,
+    fontSize: 22,
+    fontWeight: "700",
+    color: Colors.light.text,
+    letterSpacing: -0.3,
   },
-  searchIcon: { marginTop: 4 },
+  avatarBtn: { marginTop: 4 },
+  avatarCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.light.tintLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heroBanner: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: "#1A1A1A",
+    borderRadius: 20,
+    padding: 20,
+    overflow: "hidden",
+  },
+  heroBadge: {
+    backgroundColor: Colors.light.tint,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    alignSelf: "flex-start",
+    marginBottom: 10,
+  },
+  heroBadgeText: {
+    fontSize: 9,
+    fontWeight: "500",
+    color: "#fff",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  heroTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: Colors.light.cream,
+    marginBottom: 6,
+  },
+  heroSubtitle: {
+    fontSize: 12,
+    color: "rgba(250,250,248,0.6)",
+    marginBottom: 14,
+  },
+  heroCta: {
+    backgroundColor: Colors.light.tint,
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    alignSelf: "flex-start",
+  },
+  heroCtaText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#fff",
+  },
+  heroCircle1: {
+    position: "absolute",
+    bottom: -20,
+    right: -10,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "rgba(46,139,87,0.2)",
+  },
+  heroCircle2: {
+    position: "absolute",
+    bottom: 10,
+    right: 30,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "rgba(46,139,87,0.3)",
+  },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: Colors.light.border,
     marginHorizontal: 16,
     marginBottom: 12,
-    borderRadius: 14,
+    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
     gap: 10,
-    borderWidth: 1,
-    borderColor: Colors.light.border,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
   },
   searchInput: {
     flex: 1,
@@ -224,21 +307,19 @@ const styles = StyleSheet.create({
   categoriesContent: { paddingHorizontal: 16, gap: 8, paddingVertical: 4 },
   categoryChip: {
     paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: Colors.light.border,
+    paddingVertical: 6,
+    borderRadius: 24,
+    backgroundColor: Colors.light.border,
   },
   categoryChipActive: {
-    backgroundColor: Colors.light.tint,
-    borderColor: Colors.light.tint,
+    backgroundColor: "#1A1A1A",
   },
   categoryText: {
-    fontSize: 13,
+    fontSize: 12,
+    fontWeight: "500",
     color: Colors.light.textSecondary,
   },
-  categoryTextActive: { color: "#fff" },
+  categoryTextActive: { color: Colors.light.cream },
   section: { marginTop: 16, marginBottom: 4 },
   sectionRow: {
     flexDirection: "row",
@@ -249,13 +330,16 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
+    fontWeight: "600",
     color: Colors.light.text,
-    paddingHorizontal: 16,
-    marginBottom: 12,
+  },
+  seeAll: {
+    fontSize: 11,
+    color: Colors.light.tint,
   },
   productCount: {
-    fontSize: 13,
+    fontSize: 12,
     color: Colors.light.textMuted,
   },
   list: { paddingHorizontal: 16 },

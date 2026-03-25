@@ -67,14 +67,12 @@ export default function ChitsScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  // Duration modal
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
   const [duration, setDuration] = useState(3);
   const [showDurationModal, setShowDurationModal] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const [enrollError, setEnrollError] = useState("");
 
-  // Custom amount modal
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [customAmountText, setCustomAmountText] = useState("");
   const [customError, setCustomError] = useState("");
@@ -190,12 +188,10 @@ export default function ChitsScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Chit Plans</Text>
       </View>
 
-      {/* Tabs */}
       <View style={styles.tabs}>
         <Pressable
           style={[styles.tab, tab === "browse" && styles.tabActive]}
@@ -217,10 +213,9 @@ export default function ChitsScreen() {
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 100 }]}>
         {tab === "browse" ? (
           <>
-            {/* Info box */}
             <View style={styles.infoBox}>
               <View style={styles.infoTitle}>
-                <Ionicons name="information-circle-outline" size={18} color="#1a6fd4" />
+                <Ionicons name="information-circle-outline" size={16} color={Colors.light.tint} />
                 <Text style={styles.infoTitleText}>How Chit Plans Work</Text>
               </View>
               {[
@@ -236,35 +231,34 @@ export default function ChitsScreen() {
 
             <Text style={styles.sectionLabel}>Select Chit Plan</Text>
 
-            {/* Preset plans */}
             {PRESET_PLANS.map(({ amount, icon }) => (
               <Pressable key={amount} style={styles.planRow} onPress={() => openDurationModal(amount)}>
                 <View style={styles.planIconBox}>
-                  <Ionicons name={icon} size={22} color={Colors.light.tint} />
+                  <Ionicons name={icon} size={20} color={Colors.light.tint} />
                 </View>
                 <View style={styles.planRowText}>
                   <Text style={styles.planRowAmount}>{formatAmount(amount)}</Text>
                   <Text style={styles.planRowSub}>Choose duration to calculate EMI</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color={Colors.light.textMuted} />
+                <Ionicons name="chevron-forward" size={18} color={Colors.light.borderStrong} />
               </Pressable>
             ))}
 
-            {/* Custom Amount */}
-            <Pressable style={styles.planRow} onPress={() => { setCustomError(""); setCustomAmountText(""); setShowCustomModal(true); Haptics.selectionAsync(); }}>
-              <View style={styles.planIconBox}>
-                <Ionicons name="options-outline" size={22} color={Colors.light.tint} />
+            <Pressable style={styles.customPlanRow} onPress={() => { setCustomError(""); setCustomAmountText(""); setShowCustomModal(true); Haptics.selectionAsync(); }}>
+              <View style={styles.customIconBox}>
+                <Ionicons name="options-outline" size={20} color={Colors.light.tint} />
               </View>
               <View style={styles.planRowText}>
-                <Text style={styles.planRowAmount}>Custom Amount</Text>
+                <Text style={styles.customPlanAmount}>Custom Amount</Text>
+                <Text style={styles.planRowSub}>Set your own savings goal</Text>
               </View>
-              <Ionicons name="chevron-forward" size={20} color={Colors.light.textMuted} />
+              <Ionicons name="chevron-forward" size={18} color={Colors.light.borderStrong} />
             </Pressable>
           </>
         ) : (
           !user ? (
             <View style={styles.empty}>
-              <Ionicons name="lock-closed-outline" size={64} color={Colors.light.border} />
+              <Ionicons name="lock-closed-outline" size={64} color={Colors.light.borderStrong} />
               <Text style={styles.emptyText}>Sign in to see your chits</Text>
               <Pressable style={styles.actionBtn} onPress={() => router.push("/auth")}>
                 <Text style={styles.actionBtnText}>Sign In</Text>
@@ -272,7 +266,7 @@ export default function ChitsScreen() {
             </View>
           ) : myChits.length === 0 ? (
             <View style={styles.empty}>
-              <Ionicons name="wallet-outline" size={64} color={Colors.light.border} />
+              <Ionicons name="wallet-outline" size={64} color={Colors.light.borderStrong} />
               <Text style={styles.emptyText}>No active chits</Text>
               <Text style={styles.emptySubtext}>Start saving with a chit plan</Text>
               <Pressable style={styles.actionBtn} onPress={() => setTab("browse")}>
@@ -291,7 +285,7 @@ export default function ChitsScreen() {
               const progress = e.chitPlan.totalAmount > 0
                 ? Math.min(100, Math.round((e.amountPaid / e.chitPlan.totalAmount) * 100))
                 : 0;
-              const pillBg = isCompleted ? "#E8F0FF" : isOverdue ? "#FFF0EE" : "#E8F8EE";
+              const pillBg = isCompleted ? "#E8F0FF" : isOverdue ? Colors.light.dangerLight : Colors.light.tintLight;
               const pillColor = isCompleted ? "#2563eb" : isOverdue ? Colors.light.error : Colors.light.success;
               const pillLabel = isCompleted ? "Completed" : isOverdue ? "Overdue" : "Active";
               const progressColor = isCompleted ? "#2563eb" : isOverdue ? Colors.light.error : Colors.light.success;
@@ -367,7 +361,6 @@ export default function ChitsScreen() {
         )}
       </ScrollView>
 
-      {/* Custom Amount Modal */}
       <Modal visible={showCustomModal} transparent animationType="fade">
         <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === "ios" ? "padding" : "height"}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowCustomModal(false)} />
@@ -398,7 +391,6 @@ export default function ChitsScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Duration Modal */}
       <Modal visible={showDurationModal} transparent animationType="fade">
         <View style={styles.overlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => !enrolling && setShowDurationModal(false)} />
@@ -422,16 +414,14 @@ export default function ChitsScreen() {
             />
             <Text style={styles.durationValue}>{duration} month{duration !== 1 ? "s" : ""}</Text>
 
-            {/* EMI box */}
             <View style={styles.emiBox}>
               <View style={styles.emiTitleRow}>
-                <Ionicons name="information-circle-outline" size={15} color="#1a6fd4" />
+                <Ionicons name="information-circle-outline" size={15} color={Colors.light.tint} />
                 <Text style={styles.emiTitle}>Monthly EMI</Text>
               </View>
               <Text style={styles.emiAmount}>{formatAmount(Math.round(emi))}</Text>
             </View>
 
-            {/* Deadline warning */}
             <View style={[styles.deadlineBox, isOverDeadline && styles.deadlineBoxError]}>
               <Ionicons
                 name={isOverDeadline ? "alert-circle-outline" : "warning-outline"}
@@ -474,91 +464,99 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.light.background },
   loader: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: Colors.light.background },
   header: { paddingHorizontal: 20, paddingBottom: 10 },
-  title: { fontSize: 26, color: Colors.light.text },
+  title: { fontSize: 20, fontWeight: "700", color: Colors.light.text },
   tabs: {
     flexDirection: "row", marginHorizontal: 16, marginBottom: 16,
-    backgroundColor: Colors.light.surface, borderRadius: 12, padding: 4,
+    backgroundColor: Colors.light.border, borderRadius: 12, padding: 3,
   },
-  tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 10, flexDirection: "row", justifyContent: "center", gap: 6 },
-  tabActive: { backgroundColor: "#fff", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },
+  tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 9, flexDirection: "row", justifyContent: "center", gap: 6 },
+  tabActive: { backgroundColor: Colors.light.surface, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },
   tabText: { fontSize: 14, color: Colors.light.textMuted },
-  tabTextActive: { color: Colors.light.text },
+  tabTextActive: { color: Colors.light.text, fontWeight: "500" },
   badge: { backgroundColor: Colors.light.tint, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1, minWidth: 20, alignItems: "center" },
-  badgeText: { color: "#fff", fontSize: 11 },
+  badgeText: { color: "#fff", fontSize: 9 },
   content: { paddingHorizontal: 16, gap: 12 },
   infoBox: {
-    backgroundColor: "#EAF3FF", borderRadius: 14, padding: 16, gap: 6,
-    borderWidth: 1, borderColor: "#C3D9F5",
+    backgroundColor: Colors.light.tintLight, borderRadius: 12, padding: 12, gap: 6,
+    borderLeftWidth: 3, borderLeftColor: Colors.light.tint,
   },
   infoTitle: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
-  infoTitleText: { fontSize: 14, color: "#1a6fd4" },
-  infoLine: { fontSize: 13, color: Colors.light.textSecondary, lineHeight: 20 },
-  sectionLabel: { fontSize: 18, color: Colors.light.text, marginTop: 4 },
+  infoTitleText: { fontSize: 11, fontWeight: "600", color: Colors.light.tint },
+  infoLine: { fontSize: 10, color: "#3B6D11", lineHeight: 17 },
+  sectionLabel: { fontSize: 16, fontWeight: "600", color: Colors.light.text, marginTop: 4 },
   planRow: {
     flexDirection: "row", alignItems: "center", gap: 14,
-    backgroundColor: "#fff", borderRadius: 14, padding: 16,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
+    backgroundColor: Colors.light.surface, borderRadius: 14, padding: 12,
+    borderWidth: 1, borderColor: Colors.light.border,
   },
   planIconBox: {
-    width: 44, height: 44, borderRadius: 12,
-    backgroundColor: Colors.light.tint + "18", alignItems: "center", justifyContent: "center",
+    width: 32, height: 32, borderRadius: 8,
+    backgroundColor: Colors.light.tintLight, alignItems: "center", justifyContent: "center",
   },
   planRowText: { flex: 1 },
-  planRowAmount: { fontSize: 17, color: Colors.light.text },
-  planRowSub: { fontSize: 12, color: Colors.light.textMuted, marginTop: 2 },
+  planRowAmount: { fontSize: 15, fontWeight: "600", color: Colors.light.text },
+  planRowSub: { fontSize: 9, color: Colors.light.textMuted, marginTop: 2 },
+  customPlanRow: {
+    flexDirection: "row", alignItems: "center", gap: 14,
+    backgroundColor: "#F6FBF7", borderRadius: 14, padding: 12,
+    borderWidth: 1.5, borderColor: Colors.light.tint, borderStyle: "dashed",
+  },
+  customIconBox: {
+    width: 32, height: 32, borderRadius: 8,
+    backgroundColor: "#C0DDB6", alignItems: "center", justifyContent: "center",
+  },
+  customPlanAmount: { fontSize: 15, fontWeight: "600", color: Colors.light.tint },
   empty: { alignItems: "center", justifyContent: "center", paddingVertical: 80, gap: 12 },
-  emptyText: { fontSize: 18, color: Colors.light.text },
+  emptyText: { fontSize: 18, fontWeight: "600", color: Colors.light.text },
   emptySubtext: { fontSize: 13, color: Colors.light.textMuted, textAlign: "center" },
-  actionBtn: { backgroundColor: Colors.light.tint, borderRadius: 12, paddingHorizontal: 32, paddingVertical: 14, marginTop: 4 },
-  actionBtnText: { fontSize: 15, color: "#fff" },
+  actionBtn: { backgroundColor: "#1A1A1A", borderRadius: 24, paddingHorizontal: 28, paddingVertical: 12, marginTop: 4 },
+  actionBtnText: { fontSize: 13, fontWeight: "500", color: Colors.light.cream },
   myChitCard: {
-    backgroundColor: "#fff", borderRadius: 16, padding: 16, gap: 12,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
+    backgroundColor: Colors.light.surface, borderRadius: 16, padding: 16, gap: 12,
+    borderWidth: 1, borderColor: Colors.light.border,
   },
   myChitHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
-  myChitName: { fontSize: 15, color: Colors.light.text, flex: 1 },
-  statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  statusText: { fontSize: 12 },
+  myChitName: { fontSize: 15, fontWeight: "500", color: Colors.light.text, flex: 1 },
+  statusPill: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20 },
+  statusText: { fontSize: 10, fontWeight: "500" },
   myChitStats: { flexDirection: "row", justifyContent: "space-between" },
   myStatItem: { alignItems: "center" },
   myStatLabel: { fontSize: 11, color: Colors.light.textMuted },
-  myStatValue: { fontSize: 14, color: Colors.light.text },
+  myStatValue: { fontSize: 14, fontWeight: "600", color: Colors.light.text },
   nextPaymentRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   nextPaymentText: { fontSize: 12, color: Colors.light.textMuted },
   payEmiBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     backgroundColor: Colors.light.tint, borderRadius: 12, paddingVertical: 12,
-    shadowColor: Colors.light.tint, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 3,
   },
-  payEmiBtnText: { fontSize: 15, color: "#fff" },
+  payEmiBtnText: { fontSize: 15, fontWeight: "500", color: "#fff" },
   payEmiBtnOverdue: { backgroundColor: Colors.light.error },
   myChitCardOverdue: { borderWidth: 1.5, borderColor: Colors.light.error + "60" },
   myChitCardCompleted: { borderWidth: 1.5, borderColor: "#2563eb40" },
   progressRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  progressBarBg: { flex: 1, height: 5, borderRadius: 999, backgroundColor: "#e5e7eb", overflow: "hidden" },
+  progressBarBg: { flex: 1, height: 5, borderRadius: 999, backgroundColor: Colors.light.border, overflow: "hidden" },
   progressBarFill: { height: "100%", borderRadius: 999 },
   progressText: { fontSize: 11, color: Colors.light.textMuted, minWidth: 90, textAlign: "right" },
   overdueRow: {
     flexDirection: "row", alignItems: "flex-start", gap: 6,
-    backgroundColor: "#FFF0EE", borderRadius: 8, padding: 8,
+    backgroundColor: Colors.light.dangerLight, borderRadius: 8, padding: 8,
     borderWidth: 1, borderColor: "#FCCFC9",
   },
   overdueText: { fontSize: 12, color: Colors.light.error, flex: 1, lineHeight: 17 },
   completedRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   completedText: { fontSize: 12, color: "#2563eb" },
   overlay: {
-    flex: 1, backgroundColor: "rgba(0,0,0,0.45)",
+    flex: 1, backgroundColor: "rgba(26,26,26,0.5)",
     alignItems: "center", justifyContent: "center", padding: 24,
   },
   modalCard: {
-    backgroundColor: "#fff", borderRadius: 20, padding: 24,
+    backgroundColor: Colors.light.surface, borderRadius: 20, padding: 24,
     width: "100%", maxWidth: 360, gap: 12,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 10,
   },
-  modalTitle: { fontSize: 20, color: Colors.light.text },
+  modalTitle: { fontSize: 18, fontWeight: "700", color: Colors.light.text },
   modalAmountLabel: { fontSize: 14, color: Colors.light.textSecondary },
   inputWrap: {
-    borderWidth: 1.5, borderColor: Colors.light.border, borderRadius: 12,
+    borderWidth: 1.5, borderColor: Colors.light.border, borderRadius: 10,
     paddingHorizontal: 14, paddingVertical: 12,
   },
   amountInput: { fontSize: 16, color: Colors.light.text },
@@ -566,28 +564,28 @@ const styles = StyleSheet.create({
   errorNote: { fontSize: 13, color: Colors.light.error, textAlign: "center" },
   durationLabel: { fontSize: 13, color: Colors.light.textSecondary },
   slider: { width: "100%", height: 40 },
-  durationValue: { fontSize: 20, color: Colors.light.text },
+  durationValue: { fontSize: 20, fontWeight: "600", color: Colors.light.text },
   emiBox: {
-    backgroundColor: "#EAF3FF", borderRadius: 12, padding: 12, gap: 4,
-    borderWidth: 1, borderColor: "#C3D9F5",
+    backgroundColor: Colors.light.tintLight, borderRadius: 12, padding: 12, gap: 4,
+    borderLeftWidth: 3, borderLeftColor: Colors.light.tint,
   },
   emiTitleRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  emiTitle: { fontSize: 13, color: "#1a6fd4" },
-  emiAmount: { fontSize: 24, color: "#1a6fd4" },
+  emiTitle: { fontSize: 13, fontWeight: "600", color: Colors.light.tint },
+  emiAmount: { fontSize: 24, fontWeight: "700", color: Colors.light.tint },
   deadlineBox: {
     flexDirection: "row", alignItems: "center", gap: 6,
     backgroundColor: "#FFFBEB", borderRadius: 10, padding: 10,
     borderWidth: 1, borderColor: "#FDE68A",
   },
-  deadlineBoxError: { backgroundColor: "#FFF0EE", borderColor: "#FCCFC9" },
+  deadlineBoxError: { backgroundColor: Colors.light.dangerLight, borderColor: "#FCCFC9" },
   deadlineText: { fontSize: 12, color: "#b45309", flex: 1 },
   deadlineTextError: { color: Colors.light.error },
   modalBtns: { flexDirection: "row", gap: 12, marginTop: 4 },
-  modalCancelBtn: { flex: 1, paddingVertical: 14, alignItems: "center", borderRadius: 12 },
-  modalCancelText: { fontSize: 16, color: Colors.light.tint },
+  modalCancelBtn: { flex: 1, paddingVertical: 14, alignItems: "center", borderRadius: 10 },
+  modalCancelText: { fontSize: 16, color: Colors.light.textSecondary },
   modalConfirmBtn: {
-    flex: 1, paddingVertical: 14, alignItems: "center", borderRadius: 12,
-    backgroundColor: "#fff", borderWidth: 1.5, borderColor: Colors.light.tint,
+    flex: 1, paddingVertical: 14, alignItems: "center", borderRadius: 10,
+    backgroundColor: "#1A1A1A",
   },
-  modalConfirmText: { fontSize: 16, color: Colors.light.tint },
+  modalConfirmText: { fontSize: 16, fontWeight: "500", color: Colors.light.cream },
 });

@@ -94,7 +94,7 @@ export default function WalletScreen() {
       <View style={[styles.container, { paddingTop: topPad }]}>
         <Text style={styles.title}>Wallet</Text>
         <View style={styles.empty}>
-          <Ionicons name="wallet-outline" size={64} color={Colors.light.border} />
+          <Ionicons name="wallet-outline" size={64} color={Colors.light.borderStrong} />
           <Text style={styles.emptyText}>Sign in to access wallet</Text>
           <Pressable style={styles.btn} onPress={() => router.push("/auth")}>
             <Text style={styles.btnText}>Sign In</Text>
@@ -120,34 +120,33 @@ export default function WalletScreen() {
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 90 }]}>
         <View style={styles.balanceCard}>
-          <View style={styles.balanceTop}>
-            <Text style={styles.balanceLabel}>Available Balance</Text>
-            <Ionicons name="shield-checkmark" size={18} color="rgba(255,255,255,0.8)" />
-          </View>
+          <View style={styles.balanceDecoCircle1} />
+          <View style={styles.balanceDecoCircle2} />
+          <Text style={styles.balanceLabel}>AVAILABLE BALANCE</Text>
           <Text style={styles.balanceAmount}>₹{(wallet?.balance ?? 0).toFixed(2)}</Text>
-          <View style={styles.balanceActions}>
-            <Pressable
-              style={styles.addFundsBtn}
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setShowAddModal(true); }}
-            >
-              <Ionicons name="add" size={16} color={Colors.light.tint} />
-              <Text style={styles.addFundsBtnText}>Add Money</Text>
-            </Pressable>
-          </View>
+          <Pressable
+            style={styles.addFundsBtn}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setShowAddModal(true); }}
+          >
+            <Ionicons name="add" size={14} color="#fff" />
+            <Text style={styles.addFundsBtnText}>Add Money</Text>
+          </Pressable>
         </View>
 
-        <Text style={styles.sectionTitle}>Transaction History</Text>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Transaction History</Text>
+        </View>
 
         {!wallet?.transactions.length ? (
           <View style={styles.emptyTx}>
-            <Ionicons name="receipt-outline" size={48} color={Colors.light.border} />
+            <Ionicons name="receipt-outline" size={48} color={Colors.light.borderStrong} />
             <Text style={styles.emptyTxText}>No transactions yet</Text>
           </View>
         ) : (
           <View style={styles.txList}>
             {wallet.transactions.map(tx => (
               <View key={tx.id} style={styles.txItem}>
-                <View style={[styles.txIcon, { backgroundColor: tx.type === "credit" ? "#E8F8EE" : "#FFF0EE" }]}>
+                <View style={[styles.txIcon, { backgroundColor: tx.type === "credit" ? Colors.light.tintLight : Colors.light.dangerLight }]}>
                   <Ionicons
                     name={tx.type === "credit" ? "arrow-down" : "arrow-up"}
                     size={18}
@@ -217,64 +216,105 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.light.background },
   loader: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: Colors.light.background },
   header: { paddingHorizontal: 16, paddingBottom: 12 },
-  title: { fontSize: 26, color: Colors.light.text },
+  title: { fontSize: 20, fontWeight: "700", color: Colors.light.text },
   content: { paddingHorizontal: 16, gap: 20 },
   balanceCard: {
-    borderRadius: 24,
-    padding: 24,
-    backgroundColor: Colors.light.tint,
+    borderRadius: 20,
+    padding: 20,
+    overflow: "hidden",
     gap: 8,
-    shadowColor: Colors.light.tint,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 6,
+    backgroundColor: "#1A1A1A",
   },
-  balanceTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  balanceLabel: { fontSize: 13, color: "rgba(255,255,255,0.85)" },
-  balanceAmount: { fontSize: 40, color: "#fff", letterSpacing: -1 },
-  balanceActions: { marginTop: 8 },
+  balanceDecoCircle1: {
+    position: "absolute",
+    bottom: -20,
+    right: -10,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: "rgba(255,255,255,0.07)",
+  },
+  balanceDecoCircle2: {
+    position: "absolute",
+    bottom: 20,
+    right: 40,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  balanceLabel: {
+    fontSize: 10,
+    color: "rgba(255,255,255,0.6)",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  balanceAmount: { fontSize: 30, fontWeight: "700", color: "#fff" },
   addFundsBtn: {
     flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: "#fff", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6,
     alignSelf: "flex-start",
+    marginTop: 4,
   },
-  addFundsBtnText: { fontSize: 14, color: Colors.light.tint },
-  sectionTitle: { fontSize: 18, color: Colors.light.text },
-  txList: { gap: 0, backgroundColor: "#fff", borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: Colors.light.border },
-  txItem: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.light.border },
-  txIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  addFundsBtnText: { fontSize: 11, fontWeight: "500", color: "#fff" },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  sectionTitle: { fontSize: 15, fontWeight: "600", color: Colors.light.text },
+  txList: {
+    gap: 0,
+    backgroundColor: Colors.light.surface,
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+  },
+  txItem: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    padding: 14,
+    borderBottomWidth: 1, borderBottomColor: Colors.light.background,
+  },
+  txIcon: {
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: "center", justifyContent: "center",
+  },
   txInfo: { flex: 1 },
-  txDesc: { fontSize: 14, color: Colors.light.text },
-  txDate: { fontSize: 12, color: Colors.light.textMuted, marginTop: 2 },
-  txAmount: { fontSize: 15, },
+  txDesc: { fontSize: 11, fontWeight: "500", color: Colors.light.text },
+  txDate: { fontSize: 9, color: Colors.light.textMuted, marginTop: 2 },
+  txAmount: { fontSize: 13, fontWeight: "600" },
   emptyTx: { alignItems: "center", gap: 12, paddingVertical: 40 },
   emptyTxText: { fontSize: 15, color: Colors.light.textMuted },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingBottom: 100 },
   emptyText: { fontSize: 18, color: Colors.light.text },
-  btn: { backgroundColor: Colors.light.tint, borderRadius: 12, paddingHorizontal: 32, paddingVertical: 14 },
-  btnText: { fontSize: 15, color: "#fff" },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
+  btn: { backgroundColor: "#1A1A1A", borderRadius: 24, paddingHorizontal: 28, paddingVertical: 12 },
+  btnText: { fontSize: 13, fontWeight: "500", color: Colors.light.cream },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(26,26,26,0.5)", justifyContent: "flex-end" },
   modalSheet: {
-    backgroundColor: "#fff", borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    backgroundColor: Colors.light.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: 24, gap: 16,
   },
-  modalHandle: { width: 36, height: 4, backgroundColor: Colors.light.border, borderRadius: 2, alignSelf: "center", marginBottom: 4 },
-  modalTitle: { fontSize: 22, color: Colors.light.text },
+  modalHandle: { width: 36, height: 4, backgroundColor: Colors.light.borderStrong, borderRadius: 2, alignSelf: "center", marginBottom: 4 },
+  modalTitle: { fontSize: 18, fontWeight: "700", color: Colors.light.text },
   modalSubtitle: { fontSize: 14, color: Colors.light.textMuted },
   quickAmounts: { flexDirection: "row", gap: 10 },
   quickBtn: {
     flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center",
-    backgroundColor: Colors.light.surface, borderWidth: 1, borderColor: Colors.light.border,
+    backgroundColor: Colors.light.background, borderWidth: 1, borderColor: Colors.light.border,
   },
-  quickBtnActive: { backgroundColor: Colors.light.cream, borderColor: Colors.light.tint },
+  quickBtnActive: { backgroundColor: Colors.light.tintLight, borderColor: Colors.light.tint },
   quickBtnText: { fontSize: 14, color: Colors.light.textSecondary },
-  quickBtnTextActive: { color: Colors.light.tint },
+  quickBtnTextActive: { color: Colors.light.tint, fontWeight: "600" },
   amountInput: {
-    borderWidth: 1, borderColor: Colors.light.border, borderRadius: 12,
-    paddingHorizontal: 16, paddingVertical: 14, fontSize: 18,
+    borderWidth: 1.5, borderColor: Colors.light.border, borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 14, fontSize: 18, color: Colors.light.text,
+    backgroundColor: Colors.light.surface,
   },
-  addBtn: { backgroundColor: Colors.light.tint, borderRadius: 14, paddingVertical: 16, alignItems: "center" },
+  addBtn: { backgroundColor: "#1A1A1A", borderRadius: 10, paddingVertical: 16, alignItems: "center" },
   addBtnDisabled: { opacity: 0.5 },
-  addBtnText: { fontSize: 16, color: "#fff" },
+  addBtnText: { fontSize: 16, fontWeight: "500", color: Colors.light.cream },
 });

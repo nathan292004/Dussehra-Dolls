@@ -1,0 +1,465 @@
+You are a UI reskin specialist. Change ONLY the visual appearance of this 
+application (mobile app + admin panel). Touch ZERO functional code — no 
+logic, API calls, routing, state management, or data flow.
+
+═══════════════════════════════════════════════
+DESIGN IDENTITY: "Artisan Bazaar"
+Editorial · Warm · Premium handcraft aesthetic
+═══════════════════════════════════════════════
+
+Think: a luxury Indian boutique combined with a modern editorial magazine.
+Warm parchment surfaces, deep ink blacks, forest greens as the accent.
+Playfair Display for all headings gives it cultural weight and elegance.
+
+═══════════════════════════════════════════════
+STEP 1 — GLOBAL TOKENS (do this first)
+═══════════════════════════════════════════════
+
+Update your theme/variables file with these exact values:
+
+--color-bg-primary:       #FAFAF8   /* warm off-white — main backgrounds */
+--color-bg-secondary:     #F0EDE8   /* parchment — page background, list bg */
+--color-bg-surface:       #FFFFFF   /* pure white — cards, modals */
+--color-bg-dark:          #1A1A1A   /* near-black — hero cards, dark elements */
+--color-accent:           #2E8B57   /* forest green — CTAs, active, badges */
+--color-accent-light:     #EAF3DE   /* pale green — info bg, icon bg, tints */
+--color-accent-dark:      #1E6640   /* deep green — hover states on green */
+--color-border:           #EDE9E3   /* warm grey — card borders, dividers */
+--color-border-strong:    #D8D4CE   /* stronger border — separators */
+--color-text-primary:     #1A1A1A   /* near-black — all headings, primary text */
+--color-text-secondary:   #6B6B65   /* warm muted — subtitles, descriptions */
+--color-text-muted:       #9E9E99   /* placeholder, disabled, meta text */
+--color-text-on-dark:     #FAFAF8   /* text on dark/black backgrounds */
+--color-text-on-accent:   #FFFFFF   /* text on green backgrounds */
+--color-danger:           #C0392B   /* debit amounts, errors */
+--color-danger-light:     #FBEAE6   /* danger icon background */
+--color-success:          #2E8B57   /* same as accent — credit amounts */
+
+If using Tailwind, add to tailwind.config.js:
+theme.extend.colors = {
+  'ink':     '#1A1A1A',
+  'parchment': '#F0EDE8',
+  'cream':   '#FAFAF8',
+  'forest':  '#2E8B57',
+  'forest-light': '#EAF3DE',
+  'forest-dark':  '#1E6640',
+  'warm-border':  '#EDE9E3',
+  'warm-muted':   '#9E9E99',
+  'warm-secondary': '#6B6B65',
+}
+
+═══════════════════════════════════════════════
+STEP 2 — TYPOGRAPHY
+═══════════════════════════════════════════════
+
+Add to your HTML <head> or global CSS:
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500&display=swap');
+
+font-family map:
+  Display/headings font: 'Playfair Display', Georgia, serif
+  Body/UI font:          'DM Sans', 'Helvetica Neue', sans-serif
+
+Apply Playfair Display to:
+  - All screen/page titles (Shop, Wallet, Profile, Chit Plans, etc.)
+  - Product names on card
+  - Price/amount display everywhere (₹ figures)
+  - Section headings (Featured Picks, Transaction History, etc.)
+  - Cart total, order summary totals
+  - Admin: dashboard metric numbers, page headings
+
+Apply DM Sans to:
+  - Navigation labels
+  - Button text
+  - Form inputs, labels, placeholders
+  - Body descriptions, meta text
+  - Table cell content
+  - Category labels, badges
+  - All other UI text
+
+═══════════════════════════════════════════════
+STEP 3 — COMPONENT RULES (mobile app)
+═══════════════════════════════════════════════
+
+PAGE BACKGROUND:
+  background: #F0EDE8 (parchment — warm, not stark white)
+
+SCREEN HEADER / GREETING:
+  Add warm sub-greeting above app name: font-size small, color #9E9E99
+  App name "DollDime": Playfair Display 22px, #1A1A1A
+  User avatar: 32px circle, bg #EAF3DE, icon color #2E8B57
+
+HERO BANNER CARD (top of Shop screen):
+  background: #1A1A1A (dark ink)
+  border-radius: 20px
+  padding: 20px
+  color: #FAFAF8 for all text
+  Collection name: Playfair Display 22px bold
+  Subtitle: DM Sans 12px, rgba(250,250,248,0.6)
+  CTA button: bg #2E8B57, text white, border-radius 24px, 
+              DM Sans 12px medium, padding 8px 16px
+  Decorative circles: two overlapping circles, bg rgba(46,139,87,0.2) 
+                      and rgba(46,139,87,0.3), positioned bottom-right
+  Festival/season badge: bg #2E8B57, white text, pill shape, 
+                         DM Sans 9px uppercase, above the title
+
+SEARCH BAR:
+  background: #EDE9E3
+  border: none
+  border-radius: 12px
+  placeholder color: #9E9E99
+  icon tint: #9E9E99
+
+CATEGORY FILTER CHIPS (All / Traditional / Modern / Miniature):
+  Inactive: bg #EDE9E3, text #6B6B65, border-radius 24px (pill), 
+            padding 6px 14px, DM Sans 12px medium
+  Active:   bg #1A1A1A, text #FAFAF8, same pill shape
+  No hard border on any chip
+
+SECTION HEADERS (Featured Picks, All Products):
+  Title: Playfair Display 16px 600, #1A1A1A
+  "See all" link: DM Sans 11px, #2E8B57, right-aligned
+
+PRODUCT CARDS:
+  background: #FFFFFF
+  border: 1px solid #EDE9E3
+  border-radius: 16px
+  overflow: hidden (so image fills top cleanly)
+  
+  Image container:
+    height: ~100px (adjust to your image)
+    background: warm tinted placeholder (#F5EAD6 for earthy, 
+                #E8EEF5 for cool — alternate per card)
+    overflow: hidden
+    
+  Discount badge (top-left of image):
+    background: #1A1A1A (dark, not green)
+    text: #FAFAF8
+    font: DM Sans 9px 500
+    border-radius: 6px
+    padding: 3px 7px
+    
+  Add-to-cart button (bottom-right of image):
+    width/height: 22px circle
+    background: #2E8B57
+    color: white
+    font-size: 16px
+    border-radius: 50%
+    
+  Product info area padding: 10px
+  
+  Category label:
+    font: DM Sans 9px 500 uppercase
+    letter-spacing: 0.08em
+    color: #9E9E99
+    margin-bottom: 2px
+    
+  Product name: DM Sans 11px 500, #1A1A1A, line-height 1.3
+  
+  Price: Playfair Display 13px 600, #1A1A1A
+  Strikethrough old price: DM Sans 9px, #9E9E99, margin-left 4px
+  
+  Rating: small stars + DM Sans 9px, #9E9E99
+  
+  Card hover (web/admin): shadow lifts to 0 6px 24px rgba(0,0,0,0.10)
+
+BOTTOM NAVIGATION BAR:
+  background: #FAFAF8
+  border-top: 1px solid #EDE9E3
+  icon + label stacked
+  Active: icon and label both #2E8B57
+  Inactive: #9E9E99
+  Active icon: slightly bolder/filled variant
+  Nav label: DM Sans 9px
+
+CHIT PLANS SCREEN:
+  Page title: Playfair Display 20px 700, #1A1A1A
+
+  Tab switcher (Browse Plans / My Chits):
+    Track: bg #EDE9E3, border-radius 12px, padding 3px
+    Active tab: bg #FFFFFF, text #1A1A1A, border-radius 9px, 
+                shadow: 0 1px 4px rgba(0,0,0,0.08)
+    Inactive tab: text #9E9E99
+    Badge (count): bg #2E8B57, text white, pill shape, DM Sans 9px
+
+  Info/how-it-works card:
+    background: #EAF3DE
+    border-left: 3px solid #2E8B57
+    border-radius: 12px
+    padding: 12px
+    Title: DM Sans 11px 600, #2E8B57
+    Bullets: DM Sans 10px, #3B6D11, line-height 1.7
+
+  Plan amount cards (₹5000, ₹10000, ₹15000):
+    background: #FFFFFF
+    border: 1px solid #EDE9E3
+    border-radius: 14px
+    padding: 12px 14px
+    display: flex row with icon + text + chevron
+    
+    Icon box: 32px × 32px, bg #EAF3DE, border-radius 8px, 
+              icon color #2E8B57
+    Amount: Playfair Display 15px 600, #1A1A1A
+    Subtitle: DM Sans 9px, #9E9E99
+    Chevron: DM Sans 16px, #C0BDB7
+
+  Custom Amount card — DIFFERENTIATE IT:
+    border: 1.5px dashed #2E8B57
+    background: #F6FBF7
+    Amount text: Playfair Display 15px 600, #2E8B57
+    Subtitle: DM Sans 9px, #9E9E99
+    Icon bg: #C0DDB6
+
+CART SCREEN (empty state):
+  background: #FAFAF8
+  Empty bag icon: stroke color #D8D4CE, size 52px
+  "Your cart is empty": Playfair Display 18px, #1A1A1A
+  Subtitle: DM Sans 12px, #9E9E99
+  "Shop Now" button: bg #1A1A1A, text #FAFAF8, 
+                     border-radius 24px, padding 12px 28px,
+                     DM Sans 13px 500
+
+WALLET SCREEN:
+  Page title: Playfair Display 20px 700, #1A1A1A
+
+  Balance card:
+    background: linear-gradient(135deg, #1A1A1A 0%, #2E8B57 100%)
+    border-radius: 20px
+    padding: 20px
+    "Available Balance" label: DM Sans 10px, rgba(255,255,255,0.6), 
+                                uppercase, letter-spacing 0.08em
+    Balance amount: Playfair Display 30px 700, white
+    Decorative circles: 2 overlapping circles with white 
+                        rgba(255,255,255,0.07) and 0.04
+    "+ Add Money" button: 
+      background: rgba(255,255,255,0.15)
+      border: 1px solid rgba(255,255,255,0.25)
+      color: white
+      border-radius: 20px
+      padding: 6px 14px
+      DM Sans 11px 500
+
+  Section header "Transaction History":
+    Playfair Display 15px 600, #1A1A1A
+    Right side: small "Filter ↓" in #2E8B57, DM Sans 10px
+
+  Date grouping pills:
+    Centered pill: bg #EDE9E3, text #9E9E99, DM Sans 9px, 
+                   padding 3px 12px, border-radius 20px
+    Displayed as floating date separator between tx groups
+
+  Transaction rows:
+    padding: 10px 16px
+    border-bottom: 1px solid #F0EDE8
+    No card wrapper — clean list
+    
+    Icon circle (32px):
+      Debit: bg #FBEAE6, show ↑ arrow in #C0392B
+      Credit: bg #EAF3DE, show ↓ arrow in #2E8B57
+    
+    Transaction name: DM Sans 11px 500, #1A1A1A
+                      (trim long IDs — show readable label)
+    Date/meta: DM Sans 9px, #9E9E99
+    
+    Amount:
+      Debit: Playfair Display 13px 600, #C0392B
+      Credit: Playfair Display 13px 600, #2E8B57
+
+PROFILE SCREEN:
+  Page title: Playfair Display 20px 700, #1A1A1A
+
+  User info card:
+    background: #FFFFFF
+    border: 1px solid #EDE9E3
+    border-radius: 16px
+    padding: 16px
+    Avatar circle: 44px, bg #EAF3DE, initial letter, 
+                   font Playfair Display, color #2E8B57
+    Name: Playfair Display 16px 600, #1A1A1A
+    Email: DM Sans 11px, #9E9E99
+    Phone: DM Sans 11px, #9E9E99
+
+  Menu items (My Orders, Wallet, Chit Plans, etc.):
+    Each row: bg #FFFFFF, border-radius 12px, 
+              padding 14px 16px, margin-bottom 6px
+    border: 1px solid #EDE9E3
+    
+    Left icon box: 32px × 32px, bg #EAF3DE, 
+                   icon color #2E8B57, border-radius 8px
+    Label: DM Sans 13px 500, #1A1A1A
+    Description: DM Sans 10px, #9E9E99
+    Right chevron: #C0BDB7
+    
+    Active/hover state: border-color changes to #2E8B57 + 
+                        bg tints to #F6FBF7
+
+  Sign Out button:
+    background: #FBEAE6 (soft red tint)
+    border: 1px solid #F5C4B3
+    color: #C0392B
+    border-radius: 12px
+    padding: 14px 16px
+    DM Sans 13px 500
+
+═══════════════════════════════════════════════
+STEP 4 — ADMIN PANEL RULES
+═══════════════════════════════════════════════
+
+OVERALL LAYOUT:
+  Page background: #F0EDE8
+  Content area bg: #FAFAF8
+
+SIDEBAR:
+  background: #1A1A1A
+  width: 240px (or keep existing)
+  
+  Brand logo text: Playfair Display 18px 700, #FAFAF8
+  Brand tagline (if any): DM Sans 10px, rgba(250,250,248,0.4)
+  
+  Nav group labels: DM Sans 10px uppercase, letter-spacing 0.1em, 
+                    #6B6B65 (muted separators)
+  
+  Nav items:
+    Default: color rgba(250,250,248,0.6), DM Sans 13px 400
+    Hover: color #FAFAF8, bg rgba(255,255,255,0.06)
+    Active: color #FAFAF8, DM Sans 13px 500,
+            left border: 3px solid #2E8B57,
+            bg: rgba(46,139,87,0.12)
+    Icons: 16px, same color as label
+  
+  Bottom user section:
+    Divider: 1px solid rgba(255,255,255,0.1)
+    Avatar circle: bg #2E8B57, DM Sans initials
+    Name: DM Sans 12px 500, #FAFAF8
+    Role: DM Sans 10px, rgba(250,250,248,0.5)
+
+TOP NAVBAR (admin):
+  background: #FAFAF8
+  border-bottom: 1px solid #EDE9E3
+  height: 56px
+  Page title: Playfair Display 18px 600, #1A1A1A
+  Search bar: bg #EDE9E3, border: none, border-radius 10px
+  Notification bell: color #6B6B65, badge bg #2E8B57
+  Profile avatar: 32px circle, bg #EAF3DE, initials #2E8B57
+
+KPI / STATS CARDS:
+  background: #FFFFFF
+  border: 1px solid #EDE9E3
+  border-radius: 16px
+  padding: 20px
+  
+  Metric number: Playfair Display 28px 700, #1A1A1A
+  Metric label: DM Sans 12px, #9E9E99, uppercase, letter-spacing 0.06em
+  
+  Trend badge (↑ +12%):
+    Positive: bg #EAF3DE, text #2E8B57, DM Sans 10px 500, 
+              pill shape, padding 3px 8px
+    Negative: bg #FBEAE6, text #C0392B, same treatment
+  
+  Icon box (top-right or top-left): 
+    40px × 40px, bg #EAF3DE, border-radius 10px,
+    icon color #2E8B57, size 18px
+  
+  Bottom border accent:
+    border-bottom: 3px solid #2E8B57 (only on featured/primary KPI card)
+
+DATA TABLES:
+  background: #FFFFFF
+  border: 1px solid #EDE9E3
+  border-radius: 16px
+  overflow: hidden
+  
+  Table header row:
+    background: #F0EDE8
+    text: DM Sans 11px 500 uppercase, letter-spacing 0.08em, #6B6B65
+    padding: 12px 16px
+    border-bottom: 1px solid #EDE9E3
+    
+  Table rows:
+    padding: 12px 16px
+    border-bottom: 1px solid #F0EDE8
+    Hover: bg #F6FBF7 (subtle green tint)
+    
+  Product name cell: DM Sans 13px 500, #1A1A1A
+  Meta cells (ID, date): DM Sans 12px, #9E9E99
+  Price cells: Playfair Display 13px 600, #1A1A1A
+  
+  Status badges:
+    Active/Delivered: bg #EAF3DE, text #2E8B57, 
+                      DM Sans 10px 500, pill padding 3px 10px
+    Pending: bg #FFF3CD, text #856404, same treatment
+    Cancelled: bg #FBEAE6, text #C0392B, same treatment
+
+BUTTONS (admin):
+  Primary action: bg #1A1A1A, text #FAFAF8, border-radius 10px,
+                  DM Sans 13px 500, padding 10px 18px
+  Secondary: bg transparent, border 1.5px solid #1A1A1A, 
+             text #1A1A1A, same radius
+  Accent: bg #2E8B57, text white, same radius
+  Danger: bg #FBEAE6, text #C0392B, border 1px solid #F5C4B3
+  Hover: opacity 0.85, transition 150ms ease
+
+FORM INPUTS (admin):
+  background: #FFFFFF
+  border: 1.5px solid #EDE9E3
+  border-radius: 10px
+  focus-ring: 2px solid #2E8B57 (no glow/shadow)
+  padding: 10px 14px
+  font: DM Sans 13px, #1A1A1A
+  placeholder: #9E9E99
+  label: DM Sans 12px 500, #6B6B65, margin-bottom 6px
+
+SELECT DROPDOWNS:
+  Same treatment as inputs
+  Chevron color: #9E9E99
+  Selected option: #1A1A1A
+
+MODAL / DIALOG:
+  Overlay: rgba(26,26,26,0.5)
+  Modal card: bg #FFFFFF, border-radius 20px, 
+              padding 24px, max-width 480px
+  Modal title: Playfair Display 18px 700, #1A1A1A
+  Close button: bg #F0EDE8, circle, color #6B6B65
+
+PAGINATION:
+  Active page: bg #1A1A1A, text white, border-radius 8px
+  Inactive: text #6B6B65, border 1px solid #EDE9E3
+  Hover: bg #EDE9E3
+
+CHARTS / GRAPHS (if any):
+  Primary series color: #2E8B57
+  Secondary series: #1A1A1A
+  Gridlines: #EDE9E3
+  Axis labels: DM Sans 11px, #9E9E99
+  Tooltips: bg #1A1A1A, text white, border-radius 8px
+
+═══════════════════════════════════════════════
+STEP 5 — MICRO-DETAILS (do these last)
+═══════════════════════════════════════════════
+
+✅ Replace any remaining orange/old-primary color with #2E8B57
+✅ Replace any remaining white backgrounds in main layout with #F0EDE8
+✅ Ensure all monetary amounts (₹ figures) use Playfair Display
+✅ Add letter-spacing: 0.06em to all uppercase labels
+✅ Set line-height: 1.3 on all headings (tighter = editorial)
+✅ Scrollbar: thin style, track #EDE9E3, thumb #C0BDB7 (web)
+✅ Selection highlight: bg rgba(46,139,87,0.15)
+✅ Focus ring throughout: 2px solid #2E8B57, outline-offset 2px
+✅ Skeleton loading: use #EDE9E3 base, #D8D4CE shimmer
+✅ Toast notifications: bg #1A1A1A, text #FAFAF8, 
+                        success dot #2E8B57, error dot #C0392B
+✅ Any divider lines: 1px solid #EDE9E3 (never gray-300/400)
+
+═══════════════════════════════════════════════
+WHAT TO NEVER TOUCH
+═══════════════════════════════════════════════
+
+❌ API calls, fetch/axios
+❌ Authentication logic
+❌ Routes and navigation logic
+❌ Redux/Zustand/Context state
+❌ Form validation rules
+❌ Database/ORM queries
+❌ Business calculations (EMI, discount, wallet math)
+❌ Backend files of any kind
+❌ Environment variables
+❌ Component props and data structures

@@ -48,7 +48,7 @@ export function ProductCard({ product, onPress, onAddToCart }: Props) {
           <Image source={{ uri: product.imageUrl }} style={styles.image} resizeMode="cover" />
         ) : (
           <View style={styles.imagePlaceholder}>
-            <Ionicons name="image-outline" size={40} color={Colors.light.border} />
+            <Ionicons name="image-outline" size={40} color={Colors.light.borderStrong} />
           </View>
         )}
         {discount > 0 && (
@@ -61,26 +61,24 @@ export function ProductCard({ product, onPress, onAddToCart }: Props) {
             <Ionicons name="star" size={10} color="#fff" />
           </View>
         )}
+        {product.stock > 0 && onAddToCart && (
+          <Pressable style={styles.addBtnFloat} onPress={onAddToCart} hitSlop={8}>
+            <Ionicons name="add" size={16} color="#fff" />
+          </Pressable>
+        )}
       </View>
       <View style={styles.info}>
         <Text style={styles.category}>{product.category}</Text>
         <Text style={styles.name} numberOfLines={2}>{product.name}</Text>
         <View style={styles.ratingRow}>
-          <Ionicons name="star" size={12} color={Colors.light.gold} />
+          <Ionicons name="star" size={10} color="#D4A853" />
           <Text style={styles.rating}>{(product.rating || 0).toFixed(1)}</Text>
           <Text style={styles.reviewCount}>({product.reviewCount || 0})</Text>
         </View>
         <View style={styles.priceRow}>
-          <View>
-            <Text style={styles.price}>₹{product.price.toFixed(0)}</Text>
-            {product.originalPrice && (
-              <Text style={styles.originalPrice}>₹{product.originalPrice.toFixed(0)}</Text>
-            )}
-          </View>
-          {product.stock > 0 && onAddToCart && (
-            <Pressable style={styles.addBtn} onPress={onAddToCart} hitSlop={8}>
-              <Ionicons name="add" size={18} color="#fff" />
-            </Pressable>
+          <Text style={styles.price}>₹{product.price.toFixed(0)}</Text>
+          {product.originalPrice && (
+            <Text style={styles.originalPrice}>₹{product.originalPrice.toFixed(0)}</Text>
           )}
         </View>
         {product.stock === 0 && (
@@ -93,14 +91,11 @@ export function ProductCard({ product, onPress, onAddToCart }: Props) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#fff",
+    backgroundColor: Colors.light.surface,
     borderRadius: 16,
     overflow: "hidden",
-    shadowColor: "#8B2D0A",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
     flex: 1,
     marginBottom: 2,
   },
@@ -123,79 +118,89 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 8,
     left: 8,
-    backgroundColor: Colors.light.tint,
+    backgroundColor: "#1A1A1A",
     borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
   },
   discountText: {
-    color: "#fff",
-    fontSize: 10,
+    color: Colors.light.cream,
+    fontSize: 9,
+    fontWeight: "500",
   },
   featuredBadge: {
     position: "absolute",
     top: 8,
     right: 8,
-    backgroundColor: Colors.light.gold,
+    backgroundColor: Colors.light.tint,
     borderRadius: 12,
     width: 22,
     height: 22,
     alignItems: "center",
     justifyContent: "center",
   },
+  addBtnFloat: {
+    position: "absolute",
+    bottom: 8,
+    right: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: Colors.light.tint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   info: {
-    padding: 12,
-    gap: 4,
+    padding: 10,
+    gap: 2,
   },
   category: {
-    fontSize: 10,
-    color: Colors.light.tint,
+    fontSize: 9,
+    color: Colors.light.textMuted,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
+    fontWeight: "500",
+    marginBottom: 2,
   },
   name: {
-    fontSize: 13,
+    fontSize: 11,
+    fontWeight: "500",
     color: Colors.light.text,
-    lineHeight: 18,
+    lineHeight: 15,
   },
   ratingRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
+    marginTop: 2,
   },
   rating: {
-    fontSize: 11,
-    color: Colors.light.textSecondary,
+    fontSize: 9,
+    color: Colors.light.textMuted,
   },
   reviewCount: {
-    fontSize: 11,
+    fontSize: 9,
     color: Colors.light.textMuted,
   },
   priceRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 4,
     marginTop: 4,
   },
   price: {
-    fontSize: 16,
+    fontSize: 13,
+    fontWeight: "600",
     color: Colors.light.text,
   },
   originalPrice: {
-    fontSize: 12,
+    fontSize: 9,
     color: Colors.light.textMuted,
     textDecorationLine: "line-through",
-  },
-  addBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: Colors.light.tint,
-    alignItems: "center",
-    justifyContent: "center",
   },
   outOfStock: {
     fontSize: 11,
     color: Colors.light.error,
+    marginTop: 2,
   },
 });

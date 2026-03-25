@@ -23,23 +23,6 @@ const TABS: TabConfig[] = [
   { name: "profile", title: "Profile", icon: "person-outline",  iconFocused: "person" },
 ];
 
-// Custom icon wrapper — adds a visible pill indicator behind the active icon
-function TabIcon({
-  iconName,
-  color,
-  focused,
-}: {
-  iconName: IoniconsName;
-  color: string;
-  focused: boolean;
-}) {
-  return (
-    <View style={[styles.iconWrapper, focused && styles.iconWrapperActive]}>
-      <Ionicons name={iconName} size={22} color={color} />
-    </View>
-  );
-}
-
 export default function TabLayout() {
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
@@ -53,20 +36,20 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: Colors.light.tint,
-        tabBarInactiveTintColor: "#9E9E99",
+        tabBarInactiveTintColor: Colors.light.tabIconDefault,
         tabBarStyle: {
           position: "absolute",
-          backgroundColor: "#FFFFFF",
+          backgroundColor: Colors.light.cream,
           borderTopWidth: 1,
-          borderTopColor: "#E8E8E3",
+          borderTopColor: Colors.light.border,
           height: tabBarHeight,
           paddingBottom: isWeb ? 4 : isIOS ? insets.bottom : 8,
           paddingTop: 4,
           elevation: 16,
         },
         tabBarLabelStyle: {
-          fontSize: 10,
-          fontWeight: "700",
+          fontSize: 9,
+          fontWeight: "500",
           marginTop: 0,
         },
         tabBarIconStyle: {
@@ -92,10 +75,10 @@ export default function TabLayout() {
               },
             }),
             tabBarIcon: ({ color, focused }) => (
-              <TabIcon
-                iconName={focused ? tab.iconFocused : tab.icon}
+              <Ionicons
+                name={focused ? tab.iconFocused : tab.icon}
+                size={22}
                 color={color}
-                focused={focused}
               />
             ),
           }}
@@ -104,16 +87,3 @@ export default function TabLayout() {
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  iconWrapper: {
-    width: 40,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconWrapperActive: {
-    backgroundColor: "rgba(46,139,87,0.15)",
-  },
-});
