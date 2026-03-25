@@ -330,6 +330,7 @@ router.get("/chit-subscriptions", async (_req, res) => {
   try {
     const now = new Date();
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
     const enrollments = await db
       .select({
@@ -351,10 +352,43 @@ router.get("/chit-subscriptions", async (_req, res) => {
       const amountPaid = parseFloat(e.enrollment.amountPaid);
       const totalAmount = parseFloat(e.plan!.totalAmount);
       const monthlyEmi = parseFloat(e.plan!.monthlyContribution);
+      const duration = e.plan!.duration ?? 0;
       const progress = totalAmount > 0 ? Math.min(100, Math.round((amountPaid / totalAmount) * 100)) : 0;
+      const monthsCompleted = monthlyEmi > 0 ? Math.min(duration, Math.round(amountPaid / monthlyEmi)) : 0;
       const isCompleted = e.enrollment.status === "completed" || amountPaid >= totalAmount;
+
       const nextPayment = e.enrollment.nextPaymentDate;
-      const paidThisMonth = nextPayment && new Date(nextPayment) > thisMonthStart ? amountPaid : 0;
+
+      // Determine accurate payment status:
+      // - paid:    nextPaymentDate is next month or later (EMI paid this month), or plan completed
+      // - overdue: nextPaymentDate is before this month (missed a past payment), plan still active
+      // - pending: nextPaymentDate is within this month (EMI not yet paid, still on time)
+      let paymentStatus: "paid" | "pending" | "overdue" = "pending";
+      let isOverdue = false;
+      let daysOverdue = 0;
+
+      if (isCompleted) {
+        paymentStatus = "paid";
+      } else if (!nextPayment || amountPaid === 0) {
+        // No payments made yet — always pending, even if nextPaymentDate is in the future
+        paymentStatus = "pending";
+      } else {
+        const nextDate = new Date(nextPayment);
+        if (nextDate >= nextMonthStart) {
+          // nextPaymentDate moved past this month → paid their EMI this month
+          paymentStatus = "paid";
+        } else if (nextDate < thisMonthStart) {
+          // nextPaymentDate is before this month → missed a payment, overdue
+          paymentStatus = "overdue";
+          isOverdue = true;
+          daysOverdue = Math.floor((now.getTime() - nextDate.getTime()) / (1000 * 60 * 60 * 24));
+        } else {
+          // nextPaymentDate is this month → EMI due but not yet paid
+          paymentStatus = "pending";
+        }
+      }
+
+      const paidThisMonth = paymentStatus === "paid" && !isCompleted ? monthlyEmi : 0;
 
       return {
         id: e.enrollment.id,
@@ -362,25 +396,30 @@ router.get("/chit-subscriptions", async (_req, res) => {
         planName: e.plan!.name,
         totalAmount,
         monthlyEmi,
+        duration,
+        monthsCompleted,
         amountPaid,
         progress,
-        status: e.enrollment.status,
+        status: isCompleted ? "completed" : e.enrollment.status,
         isCompleted,
+        isOverdue,
+        daysOverdue,
         joinedAt: e.enrollment.joinedAt,
         nextPaymentDate: e.enrollment.nextPaymentDate,
         user: e.user,
         paidThisMonth,
-        paymentStatus: paidThisMonth > 0 ? "paid" : "pending",
+        paymentStatus,
       };
     });
 
     const totalSubscriptions = allEnrollments.length;
-    const thisMonthPaid = allEnrollments.filter(e => e.paymentStatus === "paid").length;
-    const thisMonthPending = allEnrollments.filter(e => e.paymentStatus === "pending" && e.status === "active").length;
+    const thisMonthPaid = allEnrollments.filter(e => e.paymentStatus === "paid" && !e.isCompleted).length;
+    const thisMonthPending = allEnrollments.filter(e => e.paymentStatus === "pending").length;
+    const overdueCount = allEnrollments.filter(e => e.isOverdue).length;
     const completedPlans = allEnrollments.filter(e => e.isCompleted).length;
 
     return res.json({
-      stats: { totalSubscriptions, thisMonthPaid, thisMonthPending, completedPlans },
+      stats: { totalSubscriptions, thisMonthPaid, thisMonthPending, overdueCount, completedPlans },
       enrollments: allEnrollments,
     });
   } catch (err) {
