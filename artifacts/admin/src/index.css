@@ -1,9 +1,8 @@
-@import url('https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&display=swap');
 @import "tailwindcss";
 
 @theme inline {
-  --font-display: 'Clash Display', 'DM Sans', 'Helvetica Neue', sans-serif;
+  --font-display: 'Playfair Display', Georgia, serif;
   --font-sans: 'DM Sans', 'Helvetica Neue', sans-serif;
 
   --color-background: hsl(var(--background));
@@ -37,31 +36,42 @@
   
   --color-warning: hsl(var(--warning));
   --color-warning-foreground: hsl(var(--warning-foreground));
+
+  --color-parchment: #F0EDE8;
+  --color-cream: #FAFAF8;
+  --color-forest: #2E8B57;
+  --color-forest-light: #EAF3DE;
+  --color-forest-dark: #1E6640;
+  --color-ink: #1A1A1A;
+  --color-warm-border: #EDE9E3;
+  --color-warm-muted: #9E9E99;
+  --color-warm-secondary: #6B6B65;
+  --color-danger-light: #FBEAE6;
 }
 
 :root {
-  --background: 0 0% 100%;
+  --background: 40 14% 93%;
   --foreground: 0 0% 10%;
   
   --primary: 0 0% 10%;
-  --primary-foreground: 0 0% 100%;
+  --primary-foreground: 40 33% 98%;
   --primary-hover: 0 0% 18%;
   
   --gold: 147 50% 36%;
   --gold-foreground: 0 0% 100%;
   
-  --surface: 60 20% 96%;
-  --surface-hover: 60 14% 93%;
+  --surface: 0 0% 100%;
+  --surface-hover: 40 14% 95%;
   
   --sidebar: 0 0% 10%;
   --sidebar-foreground: 0 0% 62%;
   --sidebar-active: 147 50% 36%;
   
-  --border: 60 10% 90%;
+  --border: 36 14% 91%;
   --ring: 147 50% 36%;
   
-  --muted: 60 14% 95%;
-  --muted-foreground: 60 2% 41%;
+  --muted: 40 14% 93%;
+  --muted-foreground: 40 2% 41%;
 
   --destructive: 6 63% 46%;
   --destructive-foreground: 0 0% 100%;
@@ -78,10 +88,23 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground font-sans antialiased selection:bg-gold/20 selection:text-gold;
+    @apply bg-background text-foreground font-sans antialiased;
+    selection {
+      background: rgba(46,139,87,0.15);
+      color: #1A1A1A;
+    }
   }
   h1, h2, h3, h4, h5, h6 {
-    @apply font-display tracking-tight text-foreground;
+    @apply font-display text-foreground;
+    line-height: 1.3;
+  }
+  ::selection {
+    background: rgba(46,139,87,0.15);
+    color: #1A1A1A;
+  }
+  *:focus-visible {
+    outline: 2px solid #2E8B57;
+    outline-offset: 2px;
   }
 }
 
@@ -99,12 +122,13 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: transparent;
+    background: #EDE9E3;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-border rounded-full;
+    background: #C0BDB7;
+    border-radius: 999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-muted-foreground/50;
+    background: #9E9E99;
   }
 }

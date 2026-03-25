@@ -30,46 +30,46 @@ export function Wallets() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-foreground">Wallets</h1>
-        <p className="text-muted-foreground mt-1">{wallets.length} active wallets · Total balance: {formatCurrency(totalBalance)}</p>
+        <h1 className="text-3xl text-ink">Wallets</h1>
+        <p className="text-warm-secondary mt-1 text-sm">{wallets.length} active wallets · Total balance: {formatCurrency(totalBalance)}</p>
       </div>
 
-      <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-warm-border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-muted/30 text-xs text-muted-foreground uppercase">
-              <tr>
-                <th className="px-4 py-3 text-left">User</th>
-                <th className="px-4 py-3 text-left">Email</th>
-                <th className="px-4 py-3 text-left">Phone</th>
-                <th className="px-4 py-3 text-left">Balance</th>
-                <th className="px-4 py-3 text-left">Last Updated</th>
+            <thead>
+              <tr className="bg-parchment">
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">User</th>
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Email</th>
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Phone</th>
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Balance</th>
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Last Updated</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">Loading...</td></tr>
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-warm-muted">Loading...</td></tr>
               ) : wallets.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No wallets found.</td></tr>
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-warm-muted">No wallets found.</td></tr>
               ) : (
                 wallets.map(w => (
-                  <tr key={w.id} className="border-t border-border/50 hover:bg-muted/10">
-                    <td className="px-4 py-3 font-medium">
+                  <tr key={w.id} className="border-t border-parchment hover:bg-[#F6FBF7] transition-colors">
+                    <td className="px-4 py-3 font-medium text-ink text-[13px]">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                          <Wallet className="w-4 h-4 text-primary" />
+                        <div className="w-8 h-8 rounded-full bg-forest-light flex items-center justify-center">
+                          <Wallet className="w-4 h-4 text-forest" />
                         </div>
                         {w.userName ?? `User #${w.userId}`}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{w.userEmail ?? "—"}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{w.userPhone ?? "—"}</td>
+                    <td className="px-4 py-3 text-warm-secondary text-[13px]">{w.userEmail ?? "—"}</td>
+                    <td className="px-4 py-3 text-warm-secondary text-[13px]">{w.userPhone ?? "—"}</td>
                     <td className="px-4 py-3">
-                      <span className={`font-semibold ${w.balance > 0 ? "text-green-600" : "text-muted-foreground"}`}>
+                      <span className={`font-display ${w.balance > 0 ? "text-forest" : "text-warm-muted"}`} style={{ fontWeight: 600 }}>
                         {formatCurrency(w.balance)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{format(new Date(w.updatedAt), "d/M/yyyy")}</td>
+                    <td className="px-4 py-3 text-warm-muted text-xs">{format(new Date(w.updatedAt), "d/M/yyyy")}</td>
                   </tr>
                 ))
               )}

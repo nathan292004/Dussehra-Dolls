@@ -129,53 +129,53 @@ export function Products() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Products</h1>
-          <p className="text-muted-foreground mt-1">Manage your doll catalog — changes are live in the app instantly.</p>
+          <h1 className="text-3xl text-ink">Products</h1>
+          <p className="text-warm-secondary mt-1 text-sm">Manage your doll catalog — changes are live in the app instantly.</p>
         </div>
         <Button onClick={openCreate}><Plus className="w-4 h-4 mr-2" /> Add Product</Button>
       </div>
 
-      <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-warm-border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-muted/30 text-xs text-muted-foreground uppercase">
-              <tr>
-                <th className="px-4 py-3 text-left">Image</th>
-                <th className="px-4 py-3 text-left">Name</th>
-                <th className="px-4 py-3 text-left">Serial</th>
-                <th className="px-4 py-3 text-left">Category</th>
-                <th className="px-4 py-3 text-left">Price</th>
-                <th className="px-4 py-3 text-left">Stock</th>
-                <th className="px-4 py-3 text-left">Actions</th>
+            <thead>
+              <tr className="bg-parchment">
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Image</th>
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Name</th>
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Serial</th>
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Category</th>
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Price</th>
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Stock</th>
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">Loading...</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-warm-muted">Loading...</td></tr>
               ) : products.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">No products yet. Click "Add Product" to create one.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-warm-muted">No products yet. Click "Add Product" to create one.</td></tr>
               ) : (
                 products.map(p => (
-                  <tr key={p.id} className="border-t border-border/50 hover:bg-muted/10 transition-colors">
+                  <tr key={p.id} className="border-t border-parchment hover:bg-[#F6FBF7] transition-colors">
                     <td className="px-4 py-3">
-                      <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center border border-border overflow-hidden">
-                        {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" /> : <Package className="w-5 h-5 text-muted-foreground" />}
+                      <div className="w-12 h-12 rounded-lg bg-parchment flex items-center justify-center border border-warm-border overflow-hidden">
+                        {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" /> : <Package className="w-5 h-5 text-warm-muted" />}
                       </div>
                     </td>
-                    <td className="px-4 py-3 font-medium">{p.name}</td>
+                    <td className="px-4 py-3 font-medium text-ink text-[13px]">{p.name}</td>
                     <td className="px-4 py-3">
                       {p.serialNumber ? (
-                        <div className="flex items-center gap-1 text-muted-foreground">
+                        <div className="flex items-center gap-1 text-warm-secondary text-xs">
                           <Hash className="w-3 h-3" />{p.serialNumber}
                         </div>
-                      ) : <span className="text-muted-foreground/50">—</span>}
+                      ) : <span className="text-warm-muted">—</span>}
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant="outline">{p.category}</Badge>
                     </td>
-                    <td className="px-4 py-3 font-medium">{formatCurrency(p.price)}</td>
+                    <td className="px-4 py-3 font-display text-ink text-[13px]" style={{ fontWeight: 600 }}>{formatCurrency(p.price)}</td>
                     <td className="px-4 py-3">
-                      <span className={p.stock < 5 ? "text-destructive font-medium" : ""}>{p.stock}</span>
+                      <span className={p.stock < 5 ? "text-destructive font-medium" : "text-ink"}>{p.stock}</span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2">

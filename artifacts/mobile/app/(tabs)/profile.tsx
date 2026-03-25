@@ -28,14 +28,14 @@ function MenuRow({ item }: { item: MenuItem }) {
       style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
       onPress={() => { Haptics.selectionAsync(); item.onPress(); }}
     >
-      <View style={[styles.menuIcon, { backgroundColor: (item.color || Colors.light.tint) + "18" }]}>
-        <Ionicons name={item.icon} size={20} color={item.color || Colors.light.tint} />
+      <View style={styles.menuIcon}>
+        <Ionicons name={item.icon} size={18} color={Colors.light.tint} />
       </View>
       <View style={styles.menuLabel}>
         <Text style={styles.menuText}>{item.label}</Text>
         {item.subtitle && <Text style={styles.menuSubtitle}>{item.subtitle}</Text>}
       </View>
-      <Ionicons name="chevron-forward" size={16} color={Colors.light.textMuted} />
+      <Ionicons name="chevron-forward" size={16} color={Colors.light.borderStrong} />
     </Pressable>
   );
 }
@@ -52,7 +52,7 @@ export default function ProfileScreen() {
         <Text style={styles.title}>Profile</Text>
         <View style={styles.signInContainer}>
           <View style={styles.avatarPlaceholder}>
-            <Ionicons name="person" size={48} color={Colors.light.border} />
+            <Ionicons name="person" size={48} color={Colors.light.borderStrong} />
           </View>
           <Text style={styles.signInTitle}>Welcome to DollDime</Text>
           <Text style={styles.signInSubtitle}>Sign in to manage your account, orders and savings</Text>
@@ -80,7 +80,7 @@ export default function ProfileScreen() {
       onPress: () => router.push("/(tabs)/wallet"),
     },
     {
-      icon: "chart-pie-outline" as any,
+      icon: "layers-outline",
       label: "Chit Plans",
       subtitle: "Your savings plans",
       onPress: () => router.push("/(tabs)/chits"),
@@ -127,11 +127,8 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.menuSection}>
-          {menuItems.map((item, index) => (
-            <React.Fragment key={item.label}>
-              <MenuRow item={item} />
-              {index < menuItems.length - 1 && <View style={styles.divider} />}
-            </React.Fragment>
+          {menuItems.map((item) => (
+            <MenuRow key={item.label} item={item} />
           ))}
         </View>
 
@@ -155,51 +152,48 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.light.background },
   title: {
-    fontSize: 26, color: Colors.light.text,
+    fontSize: 20, fontWeight: "700", color: Colors.light.text,
     paddingHorizontal: 16, paddingBottom: 16,
   },
-  content: { paddingHorizontal: 16, gap: 20 },
+  content: { paddingHorizontal: 16, gap: 16 },
   profileCard: {
     flexDirection: "row", alignItems: "center", gap: 16,
-    backgroundColor: "#fff", borderRadius: 20, padding: 20,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08, shadowRadius: 12, elevation: 3,
+    backgroundColor: Colors.light.surface, borderRadius: 16, padding: 16,
     borderWidth: 1, borderColor: Colors.light.border,
   },
   avatar: {
-    width: 64, height: 64, borderRadius: 32,
-    backgroundColor: Colors.light.tint,
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: Colors.light.tintLight,
     alignItems: "center", justifyContent: "center",
   },
-  avatarText: { fontSize: 24, color: "#fff" },
-  profileInfo: { flex: 1, gap: 3 },
-  profileName: { fontSize: 20, color: Colors.light.text },
-  profileEmail: { fontSize: 13, color: Colors.light.textMuted },
-  profilePhone: { fontSize: 13, color: Colors.light.textMuted },
+  avatarText: { fontSize: 16, fontWeight: "600", color: Colors.light.tint },
+  profileInfo: { flex: 1, gap: 2 },
+  profileName: { fontSize: 16, fontWeight: "600", color: Colors.light.text },
+  profileEmail: { fontSize: 11, color: Colors.light.textMuted },
+  profilePhone: { fontSize: 11, color: Colors.light.textMuted },
   menuSection: {
-    backgroundColor: "#fff", borderRadius: 20, overflow: "hidden",
-    shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
+    backgroundColor: Colors.light.surface, borderRadius: 12, overflow: "hidden",
     borderWidth: 1, borderColor: Colors.light.border,
   },
   menuRow: {
     flexDirection: "row", alignItems: "center", gap: 14,
-    padding: 16, backgroundColor: "#fff",
+    padding: 14, backgroundColor: Colors.light.surface,
+    borderBottomWidth: 1, borderBottomColor: Colors.light.border,
   },
   menuIcon: {
-    width: 38, height: 38, borderRadius: 10,
+    width: 32, height: 32, borderRadius: 8,
+    backgroundColor: Colors.light.tintLight,
     alignItems: "center", justifyContent: "center",
   },
   menuLabel: { flex: 1 },
-  menuText: { fontSize: 15, color: Colors.light.text },
-  menuSubtitle: { fontSize: 12, color: Colors.light.textMuted, marginTop: 1 },
-  divider: { height: 1, backgroundColor: Colors.light.border, marginLeft: 68 },
+  menuText: { fontSize: 13, fontWeight: "500", color: Colors.light.text },
+  menuSubtitle: { fontSize: 10, color: Colors.light.textMuted, marginTop: 1 },
   logoutBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
-    backgroundColor: "#FFF0EE", borderRadius: 16, paddingVertical: 16,
-    borderWidth: 1, borderColor: "#FCCFC9",
+    backgroundColor: Colors.light.dangerLight, borderRadius: 12, paddingVertical: 14,
+    borderWidth: 1, borderColor: "#F5C4B3",
   },
-  logoutText: { fontSize: 16, color: Colors.light.error },
+  logoutText: { fontSize: 13, fontWeight: "500", color: Colors.light.error },
   versionText: {
     fontSize: 12, color: Colors.light.textMuted,
     textAlign: "center", paddingBottom: 8,
@@ -207,11 +201,11 @@ const styles = StyleSheet.create({
   signInContainer: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, paddingHorizontal: 32, paddingBottom: 100 },
   avatarPlaceholder: {
     width: 100, height: 100, borderRadius: 50,
-    backgroundColor: Colors.light.cream, alignItems: "center", justifyContent: "center",
+    backgroundColor: Colors.light.tintLight, alignItems: "center", justifyContent: "center",
     borderWidth: 2, borderColor: Colors.light.border,
   },
-  signInTitle: { fontSize: 22, color: Colors.light.text, textAlign: "center" },
-  signInSubtitle: { fontSize: 14, color: Colors.light.textMuted, textAlign: "center", lineHeight: 22 },
-  signInBtn: { backgroundColor: Colors.light.tint, borderRadius: 14, paddingHorizontal: 40, paddingVertical: 16, marginTop: 8 },
-  signInBtnText: { fontSize: 16, color: "#fff" },
+  signInTitle: { fontSize: 18, fontWeight: "600", color: Colors.light.text, textAlign: "center" },
+  signInSubtitle: { fontSize: 12, color: Colors.light.textMuted, textAlign: "center", lineHeight: 20 },
+  signInBtn: { backgroundColor: "#1A1A1A", borderRadius: 24, paddingHorizontal: 28, paddingVertical: 14, marginTop: 8 },
+  signInBtnText: { fontSize: 13, fontWeight: "500", color: Colors.light.cream },
 });

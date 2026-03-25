@@ -108,11 +108,19 @@ artifacts-monorepo/
 - `wallets` — user wallet balances
 - `transactions` — wallet transaction history
 
-## Color Scheme
-- Primary: Terracotta `#C84B1A` (saffron-orange)
-- Gold accent: `#D4A017`
-- Background: Warm cream `#FFF9F0`
-- Festive Indian festival aesthetic
+## Color Scheme — "Artisan Bazaar" Theme
+- Background: Parchment `#F0EDE8`
+- Surface: White `#FFFFFF`
+- Cream: `#FAFAF8` (tab bar, alt surfaces)
+- Border: Warm `#EDE9E3`, Strong `#D8D4CE`
+- Text: Ink `#1A1A1A`, Secondary `#6B6560`, Muted `#9C968F`
+- Accent: Forest Green `#2E8B57` (CTA, active states)
+- Accent Light: `#EAF3DE` (badges, tint backgrounds)
+- Danger Light: `#FBEAE6` (overdue states)
+- **Admin fonts**: Playfair Display (headings/display), DM Sans (body) — via Google Fonts in index.css
+- **Admin styling**: `rounded-2xl` cards, `bg-parchment` table headers, `text-ink` headings, `border-warm-border` dividers
+- **Mobile**: Uses Ionicons only (no MaterialCommunityIcons/expo-symbols — crashes Android)
+- **Mobile CTA**: Primary buttons use Ink `#1A1A1A` bg; accent uses Forest Green
 
 ## TypeScript & Composite Projects
 

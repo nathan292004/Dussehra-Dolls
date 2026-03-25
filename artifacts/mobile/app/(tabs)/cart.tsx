@@ -29,7 +29,7 @@ function CartItemRow({ item, onUpdate, onRemove }: { item: any; onUpdate: (qty: 
         {item.product?.imageUrl ? (
           <Image source={{ uri: item.product.imageUrl }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
         ) : (
-          <Ionicons name="image-outline" size={28} color={Colors.light.border} />
+          <Ionicons name="image-outline" size={28} color={Colors.light.borderStrong} />
         )}
       </View>
       <View style={styles.itemInfo}>
@@ -81,11 +81,11 @@ export default function CartScreen() {
       <View style={[styles.container, { paddingTop: topPad }]}>
         <Text style={styles.pageTitle}>Cart</Text>
         <View style={styles.emptyState}>
-          <Ionicons name="bag-outline" size={64} color={Colors.light.border} />
+          <Ionicons name="bag-outline" size={52} color={Colors.light.borderStrong} />
           <Text style={styles.emptyTitle}>Sign in to view cart</Text>
           <Text style={styles.emptySubtitle}>Please log in to access your shopping cart</Text>
-          <Pressable style={styles.loginBtn} onPress={() => router.push("/auth")}>
-            <Text style={styles.loginBtnText}>Sign In</Text>
+          <Pressable style={styles.shopNowBtn} onPress={() => router.push("/auth")}>
+            <Text style={styles.shopNowBtnText}>Sign In</Text>
           </Pressable>
         </View>
       </View>
@@ -97,11 +97,11 @@ export default function CartScreen() {
       <View style={[styles.container, { paddingTop: topPad }]}>
         <Text style={styles.pageTitle}>Cart</Text>
         <View style={styles.emptyState}>
-          <Ionicons name="bag-outline" size={64} color={Colors.light.border} />
+          <Ionicons name="bag-outline" size={52} color={Colors.light.borderStrong} />
           <Text style={styles.emptyTitle}>Your cart is empty</Text>
           <Text style={styles.emptySubtitle}>Add beautiful dolls to your cart</Text>
-          <Pressable style={styles.loginBtn} onPress={() => router.push("/(tabs)/")}>
-            <Text style={styles.loginBtnText}>Shop Now</Text>
+          <Pressable style={styles.shopNowBtn} onPress={() => router.push("/(tabs)/")}>
+            <Text style={styles.shopNowBtnText}>Shop Now</Text>
           </Pressable>
         </View>
       </View>
@@ -137,7 +137,7 @@ export default function CartScreen() {
           }}
         >
           <Text style={styles.checkoutText}>Proceed to Checkout</Text>
-          <Ionicons name="arrow-forward" size={20} color="#fff" />
+          <Ionicons name="arrow-forward" size={20} color={Colors.light.cream} />
         </Pressable>
       </View>
     </View>
@@ -145,25 +145,21 @@ export default function CartScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.light.background },
+  container: { flex: 1, backgroundColor: Colors.light.cream },
   pageTitle: {
-    fontSize: 26,
+    fontSize: 20,
+    fontWeight: "700",
     color: Colors.light.text,
     paddingHorizontal: 16,
     paddingBottom: 16,
   },
   cartItem: {
     flexDirection: "row",
-    backgroundColor: "#fff",
+    backgroundColor: Colors.light.surface,
     borderRadius: 16,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: Colors.light.border,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
   },
   itemImage: {
     width: 90,
@@ -173,9 +169,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   itemInfo: { flex: 1, padding: 12, gap: 3 },
-  itemName: { fontSize: 13, color: Colors.light.text },
-  itemCategory: { fontSize: 11, color: Colors.light.tint },
-  itemPrice: { fontSize: 15, color: Colors.light.text },
+  itemName: { fontSize: 13, fontWeight: "500", color: Colors.light.text },
+  itemCategory: { fontSize: 9, color: Colors.light.textMuted, textTransform: "uppercase", letterSpacing: 0.8 },
+  itemPrice: { fontSize: 15, fontWeight: "600", color: Colors.light.text },
   itemActions: {
     padding: 12,
     alignItems: "flex-end",
@@ -185,7 +181,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 8,
-    backgroundColor: "#FFF0EE",
+    backgroundColor: Colors.light.dangerLight,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -193,7 +189,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: Colors.light.surface,
+    backgroundColor: Colors.light.background,
     borderRadius: 10,
     padding: 4,
   },
@@ -202,17 +198,17 @@ const styles = StyleSheet.create({
     height: 26,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
+    backgroundColor: Colors.light.surface,
     borderRadius: 8,
   },
-  qty: { fontSize: 14, color: Colors.light.text, minWidth: 20, textAlign: "center" },
-  subtotal: { fontSize: 14, color: Colors.light.tint },
+  qty: { fontSize: 14, fontWeight: "500", color: Colors.light.text, minWidth: 20, textAlign: "center" },
+  subtotal: { fontSize: 14, fontWeight: "600", color: Colors.light.text },
   footer: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: "#fff",
+    backgroundColor: Colors.light.surface,
     borderTopWidth: 1,
     borderTopColor: Colors.light.border,
     padding: 16,
@@ -220,26 +216,26 @@ const styles = StyleSheet.create({
   },
   totalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   totalLabel: { fontSize: 15, color: Colors.light.textSecondary },
-  totalAmount: { fontSize: 22, color: Colors.light.text },
+  totalAmount: { fontSize: 22, fontWeight: "700", color: Colors.light.text },
   checkoutBtn: {
-    backgroundColor: Colors.light.tint,
-    borderRadius: 14,
+    backgroundColor: "#1A1A1A",
+    borderRadius: 12,
     paddingVertical: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
   },
-  checkoutText: { fontSize: 16, color: "#fff" },
+  checkoutText: { fontSize: 16, fontWeight: "500", color: Colors.light.cream },
   emptyState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingBottom: 100 },
-  emptyTitle: { fontSize: 20, color: Colors.light.text },
-  emptySubtitle: { fontSize: 14, color: Colors.light.textMuted, textAlign: "center" },
-  loginBtn: {
-    backgroundColor: Colors.light.tint,
-    borderRadius: 12,
-    paddingHorizontal: 32,
-    paddingVertical: 14,
+  emptyTitle: { fontSize: 18, fontWeight: "600", color: Colors.light.text },
+  emptySubtitle: { fontSize: 12, color: Colors.light.textMuted, textAlign: "center" },
+  shopNowBtn: {
+    backgroundColor: "#1A1A1A",
+    borderRadius: 24,
+    paddingHorizontal: 28,
+    paddingVertical: 12,
     marginTop: 8,
   },
-  loginBtnText: { fontSize: 15, color: "#fff" },
+  shopNowBtnText: { fontSize: 13, fontWeight: "500", color: Colors.light.cream },
 });
