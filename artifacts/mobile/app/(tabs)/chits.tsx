@@ -292,9 +292,9 @@ export default function ChitsScreen() {
                 ? Math.min(100, Math.round((e.amountPaid / e.chitPlan.totalAmount) * 100))
                 : 0;
               const pillBg = isCompleted ? "#E8F0FF" : isOverdue ? "#FFF0EE" : "#E8F8EE";
-              const pillColor = isCompleted ? "#2563eb" : isOverdue ? Colors.light.tint : Colors.light.success;
+              const pillColor = isCompleted ? "#2563eb" : isOverdue ? Colors.light.error : Colors.light.success;
               const pillLabel = isCompleted ? "Completed" : isOverdue ? "Overdue" : "Active";
-              const progressColor = isCompleted ? "#2563eb" : isOverdue ? Colors.light.tint : Colors.light.success;
+              const progressColor = isCompleted ? "#2563eb" : isOverdue ? Colors.light.error : Colors.light.success;
 
               return (
               <View key={e.id} style={[styles.myChitCard, isOverdue && styles.myChitCardOverdue, isCompleted && styles.myChitCardCompleted]}>
@@ -329,7 +329,7 @@ export default function ChitsScreen() {
 
                 {isOverdue && nextDate && (
                   <View style={styles.overdueRow}>
-                    <Ionicons name="alert-circle" size={14} color={Colors.light.tint} />
+                    <Ionicons name="alert-circle" size={14} color={Colors.light.error} />
                     <Text style={styles.overdueText}>
                       Payment was due {nextDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} — please pay now
                     </Text>
@@ -480,7 +480,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.surface, borderRadius: 12, padding: 4,
   },
   tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 10, flexDirection: "row", justifyContent: "center", gap: 6 },
-  tabActive: { backgroundColor: "#fff", shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },
+  tabActive: { backgroundColor: "#fff", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },
   tabText: { fontSize: 14, color: Colors.light.textMuted },
   tabTextActive: { color: Colors.light.text },
   badge: { backgroundColor: Colors.light.tint, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1, minWidth: 20, alignItems: "center" },
@@ -497,7 +497,7 @@ const styles = StyleSheet.create({
   planRow: {
     flexDirection: "row", alignItems: "center", gap: 14,
     backgroundColor: "#fff", borderRadius: 14, padding: 16,
-    shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
   },
   planIconBox: {
     width: 44, height: 44, borderRadius: 12,
@@ -513,7 +513,7 @@ const styles = StyleSheet.create({
   actionBtnText: { fontSize: 15, color: "#fff" },
   myChitCard: {
     backgroundColor: "#fff", borderRadius: 16, padding: 16, gap: 12,
-    shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
   },
   myChitHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
   myChitName: { fontSize: 15, color: Colors.light.text, flex: 1 },
@@ -531,8 +531,8 @@ const styles = StyleSheet.create({
     shadowColor: Colors.light.tint, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 3,
   },
   payEmiBtnText: { fontSize: 15, color: "#fff" },
-  payEmiBtnOverdue: { backgroundColor: Colors.light.tint },
-  myChitCardOverdue: { borderWidth: 1.5, borderColor: Colors.light.tint + "60" },
+  payEmiBtnOverdue: { backgroundColor: Colors.light.error },
+  myChitCardOverdue: { borderWidth: 1.5, borderColor: Colors.light.error + "60" },
   myChitCardCompleted: { borderWidth: 1.5, borderColor: "#2563eb40" },
   progressRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   progressBarBg: { flex: 1, height: 5, borderRadius: 999, backgroundColor: "#e5e7eb", overflow: "hidden" },
@@ -543,7 +543,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF0EE", borderRadius: 8, padding: 8,
     borderWidth: 1, borderColor: "#FCCFC9",
   },
-  overdueText: { fontSize: 12, color: Colors.light.tint, flex: 1, lineHeight: 17 },
+  overdueText: { fontSize: 12, color: Colors.light.error, flex: 1, lineHeight: 17 },
   completedRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   completedText: { fontSize: 12, color: "#2563eb" },
   overlay: {

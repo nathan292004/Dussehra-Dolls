@@ -1,32 +1,29 @@
-const primary = "#C84B1A";
-const primaryLight = "#E8643A";
-const primaryDark = "#8B2D0A";
-const gold = "#D4A017";
-const goldLight = "#F0C040";
-const cream = "#FDF6E3";
-const surface = "#FFF9F0";
-const dark = "#1A0A00";
-const darkCard = "#2D1506";
+const primary = "#1A1A1A";
+const accent = "#2E8B57";
+const accentLight = "#3DA86A";
+const accentDark = "#1F6B3F";
+const surface = "#F5F5F0";
+const dark = "#1A1A1A";
 
 export default {
   light: {
     text: dark,
-    textSecondary: "#6B3A1F",
-    textMuted: "#9E6B4A",
-    background: "#FFF9F0",
+    textSecondary: "#6B6B65",
+    textMuted: "#9E9E99",
+    background: "#FFFFFF",
     surface: surface,
     card: "#FFFFFF",
-    border: "#F0D5B8",
-    tint: primary,
-    tintLight: primaryLight,
-    tintDark: primaryDark,
-    gold: gold,
-    goldLight: goldLight,
-    tabIconDefault: "#C4A07A",
-    tabIconSelected: primary,
-    success: "#27AE60",
+    border: "#E8E8E3",
+    tint: accent,
+    tintLight: accentLight,
+    tintDark: accentDark,
+    gold: accent,
+    goldLight: accentLight,
+    tabIconDefault: "#9E9E99",
+    tabIconSelected: accent,
+    success: "#2E8B57",
     warning: "#F39C12",
-    error: "#E74C3C",
-    cream: cream,
+    error: "#C0392B",
+    cream: surface,
   },
 };

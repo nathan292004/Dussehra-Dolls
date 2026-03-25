@@ -387,7 +387,7 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 12,
     backgroundColor: "#fff", alignItems: "center", justifyContent: "center",
     alignSelf: "flex-start", marginBottom: 24,
-    shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2,
   },
   brandContainer: { alignItems: "center", marginBottom: 32, gap: 8 },
   brandIcon: {
@@ -404,7 +404,7 @@ const styles = StyleSheet.create({
   modeTab: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center" },
   modeTabActive: {
     backgroundColor: "#fff",
-    shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2,
   },
   modeTabText: { fontSize: 15, color: Colors.light.textMuted },
   modeTabTextActive: { color: Colors.light.text },
@@ -415,7 +415,7 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", gap: 12,
     backgroundColor: "#fff", borderRadius: 14, paddingHorizontal: 14, paddingVertical: 14,
     borderWidth: 1, borderColor: Colors.light.border,
-    shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
   },
   input: { flex: 1, fontSize: 15, color: Colors.light.text },
   otpHeader: { alignItems: "center", gap: 10, marginBottom: 8 },
@@ -431,7 +431,7 @@ const styles = StyleSheet.create({
     width: 46, height: 56, borderRadius: 14,
     backgroundColor: "#fff", borderWidth: 1.5, borderColor: Colors.light.border,
     fontSize: 24, color: Colors.light.text,
-    shadowColor: "#C84B1A", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
   },
   otpBoxFilled: {
     borderColor: Colors.light.tint,

@@ -1,0 +1,190 @@
+You are a UI reskin specialist. Your task is to ONLY change the visual appearance 
+of this application — both the mobile app and admin panel. 
+DO NOT touch any business logic, API calls, routing, state management, 
+database queries, or functional code. Only modify CSS, styling, theme files, 
+color variables, and font declarations.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DESIGN REFERENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The target aesthetic is a premium winter/nature e-commerce theme — 
+clean, minimal, and sophisticated. Reference: a luxury seasonal shopping 
+app with earthy tones and clean whites.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COLOR PALETTE (apply globally via CSS variables or theme config)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--color-primary:       #1A1A1A   /* Deep black — headers, primary text */
+--color-accent:        #2E8B57   /* Forest green — CTAs, active states, badges */
+--color-background:    #FFFFFF   /* Clean white — page backgrounds */
+--color-surface:       #F5F5F0   /* Off-white/warm grey — cards, panels */
+--color-border:        #E8E8E3   /* Subtle warm grey — dividers, outlines */
+--color-text-primary:  #1A1A1A   /* Dark — main body text */
+--color-text-secondary:#6B6B65   /* Muted warm grey — subtitles, metadata */
+--color-text-muted:    #9E9E99   /* Light muted — placeholders, disabled */
+--color-success:       #2E8B57   /* Same green — success states */
+--color-danger:        #C0392B   /* Soft red — errors, destructive actions */
+--color-overlay:       rgba(26,26,26,0.5) /* Dark overlay for modals */
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TYPOGRAPHY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Primary font: "Clash Display" (Google Fonts or CDN)
+  — Use for: all headings (H1–H4), large titles, product names, 
+    section headers, navigation brand name
+  — Weight: 400 (regular) for elegance, 600 for emphasis
+
+Fallback font stack: 'DM Sans', 'Helvetica Neue', sans-serif
+  — Use for: body text, labels, form inputs, descriptions, 
+    table data, buttons, metadata
+
+Import via:
+  @import url('https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&display=swap');
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COMPONENT STYLING RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BUTTONS:
+  Primary CTA: bg #1A1A1A, text white, border-radius 12px, 
+               font DM Sans medium, no box-shadow
+  Secondary:   bg transparent, border 1.5px solid #1A1A1A, 
+               text #1A1A1A, same radius
+  Accent/Green:bg #2E8B57, text white, border-radius 12px
+  Hover state: opacity 0.85, transition 150ms ease
+
+CARDS / PRODUCT TILES:
+  Background: #FFFFFF
+  Border: 1px solid #E8E8E3
+  Border-radius: 16px
+  Shadow: 0 2px 12px rgba(0,0,0,0.06)
+  Hover: shadow lifts to 0 6px 24px rgba(0,0,0,0.10)
+  Image area: soft rounded top corners matching card radius
+
+NAVIGATION / HEADER:
+  Background: #FFFFFF
+  Border-bottom: 1px solid #E8E8E3
+  Brand/logo text: Clash Display, #1A1A1A
+  Nav links: DM Sans, #6B6B65, active state #2E8B57
+
+CATEGORY CHIPS / FILTER TABS:
+  Inactive: bg #F5F5F0, text #6B6B65, border-radius 100px (pill shape)
+  Active:   bg #1A1A1A, text #FFFFFF, same pill shape
+  Padding: 6px 16px
+
+FORMS / INPUTS:
+  Border: 1.5px solid #E8E8E3
+  Border-radius: 10px
+  Focus ring: 2px solid #2E8B57 (no box-shadow glow)
+  Background: #FFFFFF
+  Label: DM Sans, 13px, #6B6B65
+  Placeholder: #9E9E99
+
+BADGES / TAGS:
+  Sale/New: bg #2E8B57, text white, border-radius 6px, 
+            DM Sans 11px medium, uppercase tracking
+  Discount: same green or #1A1A1A
+
+BOTTOM NAVIGATION BAR (mobile):
+  Background: #FFFFFF
+  Border-top: 1px solid #E8E8E3
+  Active icon/label: #2E8B57
+  Inactive: #9E9E99
+
+CART / CHECKOUT SUMMARY:
+  Background surface: #F5F5F0
+  Order total row: Clash Display, larger, #1A1A1A
+  Dividers: #E8E8E3
+
+ADMIN PANEL SIDEBAR:
+  Background: #1A1A1A (dark sidebar)
+  Text: #FFFFFF for active, #9E9E99 for inactive
+  Active item: left border 3px #2E8B57, bg rgba(46,139,87,0.12)
+  Logo/brand: Clash Display, white
+
+ADMIN TABLES:
+  Header bg: #F5F5F0
+  Header text: Clash Display 13px, uppercase, letter-spacing 0.08em
+  Row border: 1px solid #E8E8E3
+  Hover row: bg #F5F5F0
+  Action buttons: small green or dark filled pills
+
+ADMIN STATS/KPI CARDS:
+  White card, 16px radius, 1px border #E8E8E3
+  Metric number: Clash Display, large, #1A1A1A
+  Label: DM Sans, #6B6B65
+  Accent bar or icon in #2E8B57
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SPACING & LAYOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Base spacing unit: 8px
+Use multiples: 8, 12, 16, 20, 24, 32, 40, 48px
+Section padding (mobile): 16px horizontal
+Card grid gap: 12px
+Content max-width (admin): 1200px, centered
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHAT TO CHANGE — CHECKLIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ Global CSS variables / theme tokens
+✅ Font imports and font-family declarations
+✅ Button styles and states
+✅ Card and tile appearances
+✅ Navigation bar and header styling
+✅ Tab and filter chip styles
+✅ Form and input field styles
+✅ Modal and overlay backgrounds
+✅ Badge and tag colors
+✅ Admin sidebar theme
+✅ Admin table header and row styles
+✅ Admin KPI/stats card styles
+✅ Icon tint colors (active states → #2E8B57)
+✅ Loading skeleton colors
+✅ Scrollbar styling (optional, thin #E8E8E3 track)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHAT NOT TO TOUCH — STRICTLY OFF LIMITS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+❌ API endpoints or fetch/axios calls
+❌ Authentication or session logic
+❌ Route definitions
+❌ State management (Redux/Zustand/Context/etc.)
+❌ Database queries or ORM models
+❌ Form validation logic
+❌ Business rules or calculations
+❌ Environment variables
+❌ Backend code of any kind
+❌ Component props or data flow
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IMPLEMENTATION APPROACH
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. First, locate the global theme/variable file (e.g., 
+   theme.js, variables.css, tailwind.config.js, tokens.ts) 
+   and update all color and font tokens there.
+
+2. If using Tailwind: extend the config with the new 
+   color palette and font families. Map existing utility 
+   classes to the new tokens where possible.
+
+3. If using CSS Modules or styled-components: update the 
+   shared theme object/provider at the root level first, 
+   then cascade through components.
+
+4. Go component by component and apply the styling rules 
+   above, replacing old color values with the new variables.
+
+5. Test on both mobile viewport (375px) and admin desktop 
+   (1280px) to confirm visual consistency.
+
+6. Do not refactor component structure — only change 
+   className, style props, or CSS rules.
