@@ -280,16 +280,38 @@ export default function ChitsScreen() {
               </Pressable>
             </View>
           ) : (
-            myChits.map(e => (
-              <View key={e.id} style={styles.myChitCard}>
+            myChits.map(e => {
+              const now = new Date();
+              const nextDate = e.nextPaymentDate ? new Date(e.nextPaymentDate) : null;
+              const isCompleted = e.status === "completed" || e.amountPaid >= e.chitPlan.totalAmount;
+              const isOverdue = !isCompleted && nextDate !== null && nextDate < now;
+              const monthsCompleted = e.chitPlan.monthlyContribution > 0
+                ? Math.min(e.chitPlan.duration, Math.round(e.amountPaid / e.chitPlan.monthlyContribution))
+                : 0;
+              const progress = e.chitPlan.totalAmount > 0
+                ? Math.min(100, Math.round((e.amountPaid / e.chitPlan.totalAmount) * 100))
+                : 0;
+              const pillBg = isCompleted ? "#E8F0FF" : isOverdue ? "#FFF0EE" : "#E8F8EE";
+              const pillColor = isCompleted ? "#2563eb" : isOverdue ? Colors.light.tint : Colors.light.success;
+              const pillLabel = isCompleted ? "Completed" : isOverdue ? "Overdue" : "Active";
+              const progressColor = isCompleted ? "#2563eb" : isOverdue ? Colors.light.tint : Colors.light.success;
+
+              return (
+              <View key={e.id} style={[styles.myChitCard, isOverdue && styles.myChitCardOverdue, isCompleted && styles.myChitCardCompleted]}>
                 <View style={styles.myChitHeader}>
                   <Text style={styles.myChitName}>{e.chitPlan.name}</Text>
-                  <View style={[styles.statusPill, { backgroundColor: e.status === "active" ? "#E8F8EE" : "#FFF0EE" }]}>
-                    <Text style={[styles.statusText, { color: e.status === "active" ? Colors.light.success : Colors.light.tint }]}>
-                      {e.status}
-                    </Text>
+                  <View style={[styles.statusPill, { backgroundColor: pillBg }]}>
+                    <Text style={[styles.statusText, { color: pillColor }]}>{pillLabel}</Text>
                   </View>
                 </View>
+
+                <View style={styles.progressRow}>
+                  <View style={styles.progressBarBg}>
+                    <View style={[styles.progressBarFill, { width: `${progress}%` as any, backgroundColor: progressColor }]} />
+                  </View>
+                  <Text style={styles.progressText}>{monthsCompleted}/{e.chitPlan.duration} mo · {progress}%</Text>
+                </View>
+
                 <View style={styles.myChitStats}>
                   <View style={styles.myStatItem}>
                     <Text style={styles.myStatLabel}>Total</Text>
@@ -304,27 +326,43 @@ export default function ChitsScreen() {
                     <Text style={styles.myStatValue}>{formatAmount(Math.round(e.amountPaid))}</Text>
                   </View>
                 </View>
-                {e.nextPaymentDate && (
-                  <View style={styles.nextPaymentRow}>
-                    <Ionicons name="calendar-outline" size={14} color={Colors.light.textMuted} />
-                    <Text style={styles.nextPaymentText}>
-                      Next payment: {new Date(e.nextPaymentDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+
+                {isOverdue && nextDate && (
+                  <View style={styles.overdueRow}>
+                    <Ionicons name="alert-circle" size={14} color={Colors.light.tint} />
+                    <Text style={styles.overdueText}>
+                      Payment was due {nextDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} — please pay now
                     </Text>
                   </View>
                 )}
-                {e.status === "active" && (
-                  <Pressable
-                    style={styles.payEmiBtn}
-                    onPress={() => handlePayEmi(e)}
-                  >
-                    <Ionicons name="lock-closed" size={16} color="#fff" />
+
+                {!isOverdue && !isCompleted && nextDate && (
+                  <View style={styles.nextPaymentRow}>
+                    <Ionicons name="calendar-outline" size={14} color={Colors.light.textMuted} />
+                    <Text style={styles.nextPaymentText}>
+                      Next payment: {nextDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                    </Text>
+                  </View>
+                )}
+
+                {isCompleted && (
+                  <View style={styles.completedRow}>
+                    <Ionicons name="checkmark-circle" size={14} color="#2563eb" />
+                    <Text style={styles.completedText}>All installments paid — plan complete!</Text>
+                  </View>
+                )}
+
+                {!isCompleted && (
+                  <Pressable style={[styles.payEmiBtn, isOverdue && styles.payEmiBtnOverdue]} onPress={() => handlePayEmi(e)}>
+                    <Ionicons name={isOverdue ? "alert-circle" : "lock-closed"} size={16} color="#fff" />
                     <Text style={styles.payEmiBtnText}>
-                      Pay EMI – {formatAmount(Math.round(e.chitPlan.monthlyContribution))}
+                      {isOverdue ? "Pay Overdue EMI – " : "Pay EMI – "}{formatAmount(Math.round(e.chitPlan.monthlyContribution))}
                     </Text>
                   </Pressable>
                 )}
               </View>
-            ))
+              );
+            })
           )
         )}
       </ScrollView>
@@ -493,6 +531,21 @@ const styles = StyleSheet.create({
     shadowColor: Colors.light.tint, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 3,
   },
   payEmiBtnText: { fontSize: 15, color: "#fff" },
+  payEmiBtnOverdue: { backgroundColor: Colors.light.tint },
+  myChitCardOverdue: { borderWidth: 1.5, borderColor: Colors.light.tint + "60" },
+  myChitCardCompleted: { borderWidth: 1.5, borderColor: "#2563eb40" },
+  progressRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  progressBarBg: { flex: 1, height: 5, borderRadius: 999, backgroundColor: "#e5e7eb", overflow: "hidden" },
+  progressBarFill: { height: "100%", borderRadius: 999 },
+  progressText: { fontSize: 11, color: Colors.light.textMuted, minWidth: 90, textAlign: "right" },
+  overdueRow: {
+    flexDirection: "row", alignItems: "flex-start", gap: 6,
+    backgroundColor: "#FFF0EE", borderRadius: 8, padding: 8,
+    borderWidth: 1, borderColor: "#FCCFC9",
+  },
+  overdueText: { fontSize: 12, color: Colors.light.tint, flex: 1, lineHeight: 17 },
+  completedRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  completedText: { fontSize: 12, color: "#2563eb" },
   overlay: {
     flex: 1, backgroundColor: "rgba(0,0,0,0.45)",
     alignItems: "center", justifyContent: "center", padding: 24,

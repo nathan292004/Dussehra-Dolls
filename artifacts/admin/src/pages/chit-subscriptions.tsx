@@ -8,19 +8,29 @@ type ChitEnrollment = {
   planName: string;
   totalAmount: number;
   monthlyEmi: number;
+  duration: number;
+  monthsCompleted: number;
   amountPaid: number;
   paidThisMonth: number;
   progress: number;
   status: string;
   isCompleted: boolean;
+  isOverdue: boolean;
+  daysOverdue: number;
   joinedAt: string;
-  nextPaymentDate?: string;
-  paymentStatus: string;
+  nextPaymentDate?: string | null;
+  paymentStatus: "paid" | "pending" | "overdue";
   user: { id: number; name: string; email: string; phone?: string | null } | null;
 };
 
 type ChitSubData = {
-  stats: { totalSubscriptions: number; thisMonthPaid: number; thisMonthPending: number; completedPlans: number };
+  stats: {
+    totalSubscriptions: number;
+    thisMonthPaid: number;
+    thisMonthPending: number;
+    overdueCount: number;
+    completedPlans: number;
+  };
   enrollments: ChitEnrollment[];
 };
 
@@ -29,27 +39,64 @@ function useChitSubs() {
     queryKey: ["/api/admin/chit-subscriptions"],
     queryFn: async () => {
       const res = await fetch("/api/admin/chit-subscriptions");
-      if (!res.ok) return { stats: { totalSubscriptions: 0, thisMonthPaid: 0, thisMonthPending: 0, completedPlans: 0 }, enrollments: [] };
+      if (!res.ok) return {
+        stats: { totalSubscriptions: 0, thisMonthPaid: 0, thisMonthPending: 0, overdueCount: 0, completedPlans: 0 },
+        enrollments: [],
+      };
       return res.json();
     },
     refetchInterval: 15000,
   });
 }
 
+function StatusBadge({ status, isOverdue }: { status: string; isOverdue: boolean }) {
+  if (isOverdue) {
+    return (
+      <span className="text-xs px-2 py-0.5 rounded font-semibold bg-red-100 text-red-700">
+        OVERDUE
+      </span>
+    );
+  }
+  if (status === "completed") {
+    return (
+      <span className="text-xs px-2 py-0.5 rounded font-semibold bg-blue-100 text-blue-700">
+        COMPLETED
+      </span>
+    );
+  }
+  return (
+    <span className="text-xs px-2 py-0.5 rounded font-semibold bg-green-100 text-green-700">
+      ACTIVE
+    </span>
+  );
+}
+
+function PaymentBadge({ paymentStatus }: { paymentStatus: "paid" | "pending" | "overdue" }) {
+  if (paymentStatus === "paid") {
+    return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">Paid</span>;
+  }
+  if (paymentStatus === "overdue") {
+    return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-700">Overdue</span>;
+  }
+  return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-orange-100 text-orange-700">Pending</span>;
+}
+
 export function ChitSubscriptions() {
   const { data, isLoading } = useChitSubs();
-  const stats = data?.stats ?? { totalSubscriptions: 0, thisMonthPaid: 0, thisMonthPending: 0, completedPlans: 0 };
+  const stats = data?.stats ?? { totalSubscriptions: 0, thisMonthPaid: 0, thisMonthPending: 0, overdueCount: 0, completedPlans: 0 };
   const enrollments = data?.enrollments ?? [];
 
-  const [filter, setFilter] = React.useState<"all" | "paid" | "pending">("all");
+  const [filter, setFilter] = React.useState<"all" | "paid" | "pending" | "overdue" | "completed">("all");
+  const [expandedId, setExpandedId] = React.useState<number | null>(null);
 
   const filtered = enrollments.filter(e => {
-    if (filter === "paid") return e.paymentStatus === "paid";
+    if (filter === "paid") return e.paymentStatus === "paid" && !e.isCompleted;
     if (filter === "pending") return e.paymentStatus === "pending";
+    if (filter === "overdue") return e.isOverdue;
+    if (filter === "completed") return e.isCompleted;
     return true;
   });
 
-  // Group by plan name
   const grouped = filtered.reduce((acc, e) => {
     const key = e.planName;
     if (!acc[key]) acc[key] = [];
@@ -61,39 +108,48 @@ export function ChitSubscriptions() {
     { label: "Total Subscriptions", value: stats.totalSubscriptions, color: "text-foreground" },
     { label: "This Month Paid", value: stats.thisMonthPaid, color: "text-green-600" },
     { label: "This Month Pending", value: stats.thisMonthPending, color: "text-orange-500" },
-    { label: "Completed Plans", value: stats.completedPlans, color: "text-blue-600" },
+    { label: "Overdue", value: stats.overdueCount, color: "text-red-600" },
+    { label: "Completed", value: stats.completedPlans, color: "text-blue-600" },
+  ];
+
+  const filterTabs = [
+    { key: "all" as const, label: `All (${stats.totalSubscriptions})` },
+    { key: "paid" as const, label: `Paid (${stats.thisMonthPaid})` },
+    { key: "pending" as const, label: `Pending (${stats.thisMonthPending})` },
+    { key: "overdue" as const, label: `Overdue (${stats.overdueCount})` },
+    { key: "completed" as const, label: `Completed (${stats.completedPlans})` },
   ];
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-foreground">Chit Subscriptions &amp; Payments</h1>
-        <p className="text-muted-foreground mt-1">Track all active chit plans and EMI payments.</p>
+        <p className="text-muted-foreground mt-1">Track all active chit plans, EMI payments, and member progress.</p>
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {statCards.map(c => (
           <div key={c.label} className="bg-white rounded-xl border border-border p-4 shadow-sm">
-            <p className="text-sm text-muted-foreground">{c.label}</p>
+            <p className="text-xs text-muted-foreground">{c.label}</p>
             <p className={`text-3xl font-bold mt-1 ${c.color}`}>{c.value}</p>
           </div>
         ))}
       </div>
 
       {/* Filter tabs */}
-      <div className="flex gap-2">
-        {([
-          { key: "all", label: `All (${stats.totalSubscriptions})` },
-          { key: "paid", label: `Paid (${stats.thisMonthPaid})` },
-          { key: "pending", label: `Pending (${stats.thisMonthPending})` },
-        ] as const).map(tab => (
+      <div className="flex flex-wrap gap-2">
+        {filterTabs.map(tab => (
           <button
             key={tab.key}
             onClick={() => setFilter(tab.key)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               filter === tab.key
-                ? "bg-foreground text-white"
+                ? tab.key === "overdue"
+                  ? "bg-red-600 text-white"
+                  : tab.key === "completed"
+                  ? "bg-blue-600 text-white"
+                  : "bg-foreground text-white"
                 : "bg-white border border-border text-muted-foreground hover:bg-muted/30"
             }`}
           >
@@ -118,49 +174,139 @@ export function ChitSubscriptions() {
                 <thead className="bg-muted/20 text-xs text-muted-foreground uppercase">
                   <tr>
                     <th className="px-4 py-3 text-left">User</th>
-                    <th className="px-4 py-3 text-left">Email</th>
                     <th className="px-4 py-3 text-left">Phone</th>
-                    <th className="px-4 py-3 text-left">EMI Amount</th>
+                    <th className="px-4 py-3 text-left">Monthly EMI</th>
                     <th className="px-4 py-3 text-left">This Month</th>
-                    <th className="px-4 py-3 text-left">Progress</th>
+                    <th className="px-4 py-3 text-left">Months Progress</th>
+                    <th className="px-4 py-3 text-left">Total Progress</th>
+                    <th className="px-4 py-3 text-left">Next Payment</th>
                     <th className="px-4 py-3 text-left">Status</th>
-                    <th className="px-4 py-3 text-left">Actions</th>
+                    <th className="px-4 py-3 text-left">Details</th>
                   </tr>
                 </thead>
                 <tbody>
                   {subs.map(e => (
-                    <tr key={e.id} className="border-t border-border/50 hover:bg-muted/10">
-                      <td className="px-4 py-3 font-medium">{e.user?.name ?? "—"}</td>
-                      <td className="px-4 py-3 text-muted-foreground text-xs">{e.user?.email ?? "—"}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{e.user?.phone ?? "—"}</td>
-                      <td className="px-4 py-3 font-medium">₹{e.monthlyEmi.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className={e.paymentStatus === "paid" ? "text-green-600 font-medium" : "text-orange-500"}>
-                            ₹{e.paidThisMonth ?? "0.00"}
-                          </span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${e.paymentStatus === "paid" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}`}>
-                            {e.paymentStatus === "paid" ? "Paid" : "Pending"}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
-                            <div className="h-full bg-primary rounded-full" style={{ width: `${e.progress}%` }} />
+                    <React.Fragment key={e.id}>
+                      <tr
+                        className={`border-t border-border/50 hover:bg-muted/10 transition-colors ${
+                          e.isOverdue ? "bg-red-50/50" : e.isCompleted ? "bg-blue-50/30" : ""
+                        }`}
+                      >
+                        <td className="px-4 py-3">
+                          <div>
+                            <p className="font-medium">{e.user?.name ?? "—"}</p>
+                            <p className="text-xs text-muted-foreground">{e.user?.email ?? "—"}</p>
                           </div>
-                          <span className="text-xs text-muted-foreground">{e.progress}%</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-0.5 rounded font-semibold ${e.status === "active" ? "bg-foreground text-white" : "bg-muted text-muted-foreground"}`}>
-                          {e.status.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <button className="text-xs text-primary hover:underline font-medium whitespace-nowrap">View Details</button>
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{e.user?.phone ?? "—"}</td>
+                        <td className="px-4 py-3 font-medium">
+                          ₹{e.monthlyEmi.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            {e.isCompleted ? (
+                              <span className="text-blue-600 text-xs font-medium">All paid</span>
+                            ) : (
+                              <>
+                                <span className={
+                                  e.paymentStatus === "paid" ? "text-green-600 font-medium text-xs" :
+                                  e.paymentStatus === "overdue" ? "text-red-600 font-medium text-xs" :
+                                  "text-orange-500 text-xs"
+                                }>
+                                  {e.paymentStatus === "paid"
+                                    ? `₹${e.monthlyEmi.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
+                                    : e.isOverdue
+                                    ? `${e.daysOverdue}d overdue`
+                                    : "Not yet"}
+                                </span>
+                                <PaymentBadge paymentStatus={e.paymentStatus} />
+                              </>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-medium text-foreground">{e.monthsCompleted}</span>
+                            <span className="text-muted-foreground text-xs">/ {e.duration} mo</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${e.isCompleted ? "bg-blue-500" : e.isOverdue ? "bg-red-400" : "bg-primary"}`}
+                                style={{ width: `${e.progress}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-muted-foreground">{e.progress}%</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">
+                          {e.isCompleted
+                            ? <span className="text-blue-600 font-medium">Completed</span>
+                            : e.nextPaymentDate
+                            ? (
+                              <span className={e.isOverdue ? "text-red-600 font-medium" : ""}>
+                                {format(new Date(e.nextPaymentDate), "d MMM yyyy")}
+                              </span>
+                            )
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <StatusBadge status={e.status} isOverdue={e.isOverdue} />
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => setExpandedId(expandedId === e.id ? null : e.id)}
+                            className="text-xs text-primary hover:underline font-medium whitespace-nowrap"
+                          >
+                            {expandedId === e.id ? "Hide" : "View"}
+                          </button>
+                        </td>
+                      </tr>
+                      {expandedId === e.id && (
+                        <tr className={`border-t border-border/30 ${e.isOverdue ? "bg-red-50/70" : "bg-muted/10"}`}>
+                          <td colSpan={9} className="px-6 py-4">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-0.5">Enrollment ID</p>
+                                <p className="font-medium">#{e.id}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-0.5">Joined On</p>
+                                <p className="font-medium">{format(new Date(e.joinedAt), "d MMM yyyy")}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-0.5">Total Target</p>
+                                <p className="font-medium">₹{e.totalAmount.toLocaleString("en-IN")}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-0.5">Amount Paid So Far</p>
+                                <p className="font-medium text-green-700">₹{e.amountPaid.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-0.5">Remaining</p>
+                                <p className="font-medium">₹{Math.max(0, e.totalAmount - e.amountPaid).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-0.5">Months Paid</p>
+                                <p className="font-medium">{e.monthsCompleted} of {e.duration}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-0.5">Plan Status</p>
+                                <StatusBadge status={e.status} isOverdue={e.isOverdue} />
+                              </div>
+                              {e.isOverdue && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground mb-0.5">Days Overdue</p>
+                                  <p className="font-medium text-red-600">{e.daysOverdue} days</p>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
