@@ -69,6 +69,23 @@ artifacts-monorepo/
 - `POST /api/chits` — Join a chit plan
 - `GET/POST /api/wallet` — Wallet balance, add funds
 - `POST /api/payment/create-wallet-payment` + `verify-wallet-payment` — Razorpay wallet top-up
+- `GET /api/healthz` — Liveness probe (uptime + timestamp)
+- `GET /api/readyz` — Readiness probe (DB + memory checks)
+
+### Production Hardening
+- **Security headers**: helmet.js (HSTS, X-Content-Type-Options, X-Frame-Options, CORP, COOP)
+- **CORS**: Restricted to Replit/Expo domains (regex-based allowlist)
+- **Rate limiting**: 100 req/min global, 10 req/min on auth endpoints (express-rate-limit)
+- **Structured JSON logging**: Every request logged as JSON with traceId, method, path, status, latency, IP
+- **Trace IDs**: UUID v4 trace ID on every request (X-Trace-Id header), propagated from client if present
+- **Graceful shutdown**: SIGTERM/SIGINT handler drains HTTP connections + DB pool (30s timeout)
+- **DB connection retry**: Exponential backoff (5 attempts) on startup before accepting traffic
+- **Input validation**: Auth endpoints validate phone format, name length, password strength, OTP format
+- **Health endpoints**: `/healthz` (liveness) + `/readyz` (readiness with DB/memory checks)
+- **Global error handler**: Catches unhandled errors, returns traceId for debugging, hides stack in production
+- **404 handler**: Returns JSON error for unknown routes
+- **Body size limits**: JSON/urlencoded bodies capped at 1MB
+- **Env docs**: `.env.example` documents all required/optional environment variables
 
 ## WhatsApp Notifications (via Twilio)
 - **Library**: `artifacts/api-server/src/lib/twilio.ts` — `sendWhatsApp(to, body)`
