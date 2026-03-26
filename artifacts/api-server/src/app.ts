@@ -4,6 +4,8 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { requestLogger } from "./middlewares/request-logger";
 import router from "./routes";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const app: Express = express();
 
@@ -75,6 +77,11 @@ app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
 // ─── Structured logging ────────────────────────────────────
 app.use(requestLogger);
+
+// ─── Static uploads directory ───────────────────────────────
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const uploadsDir = path.join(__dirname, "..", "uploads");
+app.use("/uploads", express.static(uploadsDir));
 
 // ─── Routes ─────────────────────────────────────────────────
 app.use("/api", router);
