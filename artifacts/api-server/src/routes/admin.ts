@@ -48,7 +48,13 @@ router.post("/upload", upload.single("image"), (req, res) => {
     res.status(400).json({ error: "No image file uploaded" });
     return;
   }
-  const url = `/uploads/${req.file.filename}`;
+  const domain =
+    process.env["REPLIT_DEV_DOMAIN"] ||
+    req.get("x-forwarded-host") ||
+    req.get("host") ||
+    "localhost:8080";
+  const protocol = domain.startsWith("localhost") ? "http" : "https";
+  const url = `${protocol}://${domain}/api/uploads/${req.file.filename}`;
   res.json({ url });
 });
 
