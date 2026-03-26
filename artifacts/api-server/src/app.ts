@@ -78,10 +78,14 @@ app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 // ─── Structured logging ────────────────────────────────────
 app.use(requestLogger);
 
-// ─── Static uploads directory ───────────────────────────────
+// ─── Static uploads directory (served under /api/uploads so proxy routes it) ─
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadsDir = path.join(__dirname, "..", "uploads");
-app.use("/uploads", express.static(uploadsDir));
+app.use("/api/uploads", (_req, res, next) => {
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  next();
+}, express.static(uploadsDir));
 
 // ─── Routes ─────────────────────────────────────────────────
 app.use("/api", router);
