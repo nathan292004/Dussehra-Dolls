@@ -14,6 +14,7 @@ export const productsTable = pgTable("products", {
   rating: numeric("rating", { precision: 3, scale: 2 }).default("0"),
   reviewCount: integer("review_count").default(0).notNull(),
   isFeatured: boolean("is_featured").default(false).notNull(),
+  isListed: boolean("is_listed").default(true).notNull(),
   tags: jsonb("tags").$type<string[]>().default([]),
   serialNumber: text("serial_number"),
   location: text("location"),

@@ -198,6 +198,23 @@ router.delete("/products/:id", async (req, res) => {
   }
 });
 
+router.patch("/products/:id/toggle-listing", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [current] = await db.select({ isListed: productsTable.isListed }).from(productsTable).where(eq(productsTable.id, id)).limit(1);
+    if (!current) return res.status(404).json({ error: "Product not found" });
+    const [updated] = await db
+      .update(productsTable)
+      .set({ isListed: !current.isListed, updatedAt: new Date() })
+      .where(eq(productsTable.id, id))
+      .returning();
+    return res.json(formatProduct(updated));
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ─── Vendors ─────────────────────────────────────────────────────────────────
 router.get("/vendors", async (_req, res) => {
   try {

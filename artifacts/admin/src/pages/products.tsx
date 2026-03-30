@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
-import { Plus, Edit2, Trash2, Package, Hash, ImagePlus, X } from "lucide-react";
+import { Plus, Edit2, Trash2, Package, Hash, ImagePlus, X, Eye, EyeOff } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -38,6 +38,7 @@ type Product = {
   stock: number;
   location?: string | null;
   isFeatured: boolean;
+  isListed: boolean;
   tags?: string[];
   rating?: number;
   createdAt?: string;
@@ -91,6 +92,18 @@ function useDeleteProduct() {
   });
 }
 
+function useToggleListing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/admin/products/${id}/toggle-listing`, { method: "PATCH" });
+      if (!res.ok) throw new Error("Failed to toggle listing");
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/admin/products"] }),
+  });
+}
+
 async function uploadImage(file: File): Promise<string> {
   const form = new FormData();
   form.append("image", file);
@@ -105,6 +118,7 @@ export function Products() {
   const createMutation = useCreateProduct();
   const updateMutation = useUpdateProduct();
   const deleteMutation = useDeleteProduct();
+  const toggleListingMutation = useToggleListing();
 
   const [isModalOpen, setIsModalOpen] = React.useState(false);
   const [editingProduct, setEditingProduct] = React.useState<Product | null>(null);
@@ -209,17 +223,18 @@ export function Products() {
                 <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Category</th>
                 <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Price</th>
                 <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Stock</th>
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Status</th>
                 <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-warm-muted">Loading...</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-warm-muted">Loading...</td></tr>
               ) : products.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-warm-muted">No products yet. Click "Add Product" to create one.</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-warm-muted">No products yet. Click "Add Product" to create one.</td></tr>
               ) : (
                 products.map(p => (
-                  <tr key={p.id} className="border-t border-parchment hover:bg-[#F6FBF7] transition-colors">
+                  <tr key={p.id} className={`border-t border-parchment transition-colors ${p.isListed ? "hover:bg-[#F6FBF7]" : "bg-[#FBF8F6] opacity-70 hover:bg-[#F5F1EE]"}`}>
                     <td className="px-4 py-3">
                       <div className="w-12 h-12 rounded-lg bg-parchment flex items-center justify-center border border-warm-border overflow-hidden">
                         {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" /> : <Package className="w-5 h-5 text-warm-muted" />}
@@ -241,7 +256,30 @@ export function Products() {
                       <span className={p.stock < 5 ? "text-destructive font-medium" : "text-ink"}>{p.stock}</span>
                     </td>
                     <td className="px-4 py-3">
+                      {p.isListed ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-[#2E8B57] bg-[#EAF5EE] px-2 py-1 rounded-full">
+                          <Eye className="w-3 h-3" /> Listed
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-warm-secondary bg-parchment px-2 py-1 rounded-full border border-warm-border">
+                          <EyeOff className="w-3 h-3" /> Hidden
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
                       <div className="flex gap-2">
+                        <button
+                          onClick={() => toggleListingMutation.mutate(p.id)}
+                          disabled={toggleListingMutation.isPending}
+                          title={p.isListed ? "Remove from listing" : "Add to listing"}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 ${
+                            p.isListed
+                              ? "border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100"
+                              : "border-[#2E8B57] text-[#2E8B57] bg-[#EAF5EE] hover:bg-[#D8EFE0]"
+                          }`}
+                        >
+                          {p.isListed ? <><EyeOff className="w-3 h-3" /> Hide</> : <><Eye className="w-3 h-3" /> List</>}
+                        </button>
                         <Button variant="ghost" size="sm" onClick={() => openEdit(p)}><Edit2 className="w-4 h-4" /> Edit</Button>
                         <Button variant="destructive" size="sm" onClick={() => handleDelete(p.id)}><Trash2 className="w-4 h-4" /> Delete</Button>
                       </div>
