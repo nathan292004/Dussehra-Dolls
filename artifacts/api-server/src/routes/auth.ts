@@ -116,26 +116,36 @@ router.post("/register", async (req, res) => {
       .where(eq(usersTable.phone, normalized))
       .limit(1);
 
-    if (existing.length > 0) {
-      return res.status(409).json({ error: "Phone number already registered" });
-    }
-
     await db
       .update(otpVerificationsTable)
       .set({ verified: true })
       .where(eq(otpVerificationsTable.id, validOtp[0].id));
 
-    const [user] = await db
-      .insert(usersTable)
-      .values({
-        name,
-        email: `${normalized.replace("+", "")}@dussehradolls.app`,
-        phone: normalized,
-        passwordHash: hashPassword(password),
-      })
-      .returning();
-
-    await db.insert(walletsTable).values({ userId: user.id });
+    let user;
+    if (existing.length > 0) {
+      const [updated] = await db
+        .update(usersTable)
+        .set({
+          name,
+          passwordHash: hashPassword(password),
+          email: `${normalized.replace("+", "")}@dussehradolls.app`,
+        })
+        .where(eq(usersTable.phone, normalized))
+        .returning();
+      user = updated;
+    } else {
+      const [created] = await db
+        .insert(usersTable)
+        .values({
+          name,
+          email: `${normalized.replace("+", "")}@dussehradolls.app`,
+          phone: normalized,
+          passwordHash: hashPassword(password),
+        })
+        .returning();
+      await db.insert(walletsTable).values({ userId: created.id });
+      user = created;
+    }
 
     const token = generateToken(user.id);
     return res.status(201).json({
