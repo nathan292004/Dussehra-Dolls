@@ -1,20 +1,17 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { productsTable } from "@workspace/db/schema";
-import { eq, ilike, or } from "drizzle-orm";
+import { eq, ilike, or, and } from "drizzle-orm";
 
 const router = Router();
 
 router.get("/", async (req, res) => {
   try {
     const { category, search } = req.query as { category?: string; search?: string };
-    let query = db.select().from(productsTable);
-    const conditions = [];
+    const conditions = [eq(productsTable.isListed, true)];
     if (category) conditions.push(eq(productsTable.category, category));
-    if (search) conditions.push(or(ilike(productsTable.name, `%${search}%`), ilike(productsTable.description ?? "", `%${search}%`)));
-    const products = conditions.length > 0
-      ? await db.select().from(productsTable).where(conditions.length === 1 ? conditions[0] : conditions[0])
-      : await query;
+    if (search) conditions.push(or(ilike(productsTable.name, `%${search}%`), ilike(productsTable.description ?? "", `%${search}%`))!);
+    const products = await db.select().from(productsTable).where(and(...conditions));
     return res.json(products.map(p => ({
       ...p,
       price: parseFloat(p.price),
