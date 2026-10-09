@@ -70,7 +70,7 @@ router.post("/", async (req: AuthRequest, res) => {
 
 router.put("/:productId", async (req: AuthRequest, res) => {
   try {
-    const productId = parseInt(req.params.productId);
+    const productId = parseInt(String(req.params.productId), 10);
     const { quantity } = req.body;
     if (quantity <= 0) {
       await db.delete(cartItemsTable)
@@ -90,7 +90,7 @@ router.put("/:productId", async (req: AuthRequest, res) => {
 
 router.delete("/:productId", async (req: AuthRequest, res) => {
   try {
-    const productId = parseInt(req.params.productId);
+    const productId = parseInt(String(req.params.productId), 10);
     await db.delete(cartItemsTable)
       .where(and(eq(cartItemsTable.userId, req.userId!), eq(cartItemsTable.productId, productId)));
     const cart = await buildCartResponse(req.userId!);

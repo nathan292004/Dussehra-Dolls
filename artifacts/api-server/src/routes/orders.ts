@@ -19,7 +19,7 @@ router.get("/", async (req: AuthRequest, res) => {
 
 router.get("/:id", async (req: AuthRequest, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id), 10);
     const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
     if (!order || order.userId !== req.userId) return res.status(404).json({ error: "Order not found" });
     return res.json({ ...order, total: parseFloat(order.total) });

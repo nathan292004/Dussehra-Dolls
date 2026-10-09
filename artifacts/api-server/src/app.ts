@@ -30,6 +30,7 @@ const allowedHostPatterns = [
 ];
 
 function isAllowedOrigin(origin: string): boolean {
+  if ((process.env.CORS_ALLOWED_ORIGINS || "").split(",").map(value => value.trim()).includes(origin)) return true;
   try {
     const { hostname } = new URL(origin);
     return allowedHostPatterns.some((p) => p.test(hostname));

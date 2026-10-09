@@ -67,7 +67,7 @@ export default function OrderDetailScreen() {
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
       <View style={styles.header}>
-        <Pressable style={styles.backBtn} onPress={() => router.push("/(tabs)/")}>
+        <Pressable style={styles.backBtn} onPress={() => router.push("/(tabs)")}>
           <Ionicons name="arrow-back" size={20} color={Colors.light.text} />
         </Pressable>
         <Text style={styles.title}>Order #{order.id}</Text>
@@ -164,7 +164,7 @@ export default function OrderDetailScreen() {
           </View>
         )}
 
-        <Pressable style={styles.shopBtn} onPress={() => router.push("/(tabs)/")}>
+        <Pressable style={styles.shopBtn} onPress={() => router.push("/(tabs)")}>
           <Ionicons name="storefront-outline" size={20} color="#fff" />
           <Text style={styles.shopBtnText}>Continue Shopping</Text>
         </Pressable>

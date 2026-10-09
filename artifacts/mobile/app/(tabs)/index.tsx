@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { ProductCard } from "@/components/ProductCard";
@@ -60,7 +60,7 @@ export default function ShopScreen() {
     }
   }, [selectedCategory, search]);
 
-  useEffect(() => { fetchProducts(); }, [fetchProducts]);
+  useFocusEffect(useCallback(() => { void fetchProducts(); }, [fetchProducts]));
 
   const onRefresh = () => { setRefreshing(true); fetchProducts(); };
 

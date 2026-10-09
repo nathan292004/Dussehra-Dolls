@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
 import { useAuth, getApiBase } from "./auth";
 
 interface Product {
@@ -58,6 +58,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       if (res.ok) setCart(await res.json());
     } catch { /* ignore */ } finally { setIsLoading(false); }
   }, [token]);
+
+  useEffect(() => { void fetchCart(); }, [fetchCart]);
 
   const addToCart = useCallback(async (productId: number, quantity = 1) => {
     if (!token) return;

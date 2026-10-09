@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Pressable, Image, Platform } from "react-native
 import { Ionicons } from "@expo/vector-icons";
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from "react-native-reanimated";
 import Colors from "@/constants/colors";
+import { productImageUrl } from "@/lib/product-image";
 
 interface Product {
   id: number;
@@ -45,7 +46,7 @@ export function ProductCard({ product, onPress, onAddToCart }: Props) {
     >
       <View style={styles.imageContainer}>
         {product.imageUrl ? (
-          <Image source={{ uri: product.imageUrl }} style={styles.image} resizeMode="cover" />
+          <Image source={{ uri: productImageUrl(product.imageUrl) }} style={styles.image} resizeMode="cover" />
         ) : (
           <View style={styles.imagePlaceholder}>
             <Ionicons name="image-outline" size={40} color={Colors.light.borderStrong} />

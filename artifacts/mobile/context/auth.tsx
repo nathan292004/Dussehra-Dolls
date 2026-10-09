@@ -20,7 +20,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const API_BASE = process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api` : "/api";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ||
+  (process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api` : "/api");
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -111,7 +112,7 @@ export function useAuth() {
 }
 
 export function getApiBase() {
-  return process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api` : "/api";
+  return API_BASE;
 }
 
 export async function getStoredToken(): Promise<string | null> {

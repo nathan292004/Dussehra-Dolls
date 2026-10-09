@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
+import { productImageUrl } from "@/lib/product-image";
 import { useAuth, getApiBase } from "@/context/auth";
 import { useCart } from "@/context/cart";
 
@@ -89,7 +90,7 @@ export default function ProductDetailScreen() {
       <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 120 }}>
         <View style={styles.imageContainer}>
           {product.imageUrl ? (
-            <Image source={{ uri: product.imageUrl }} style={styles.image} resizeMode="cover" />
+            <Image source={{ uri: productImageUrl(product.imageUrl) }} style={styles.image} resizeMode="cover" />
           ) : (
             <View style={styles.imagePlaceholder}>
               <Ionicons name="image-outline" size={80} color={Colors.light.border} />

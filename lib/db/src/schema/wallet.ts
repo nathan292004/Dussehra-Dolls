@@ -11,6 +11,7 @@ export const walletsTable = pgTable("wallets", {
 });
 
 export const transactionsTable = pgTable("transactions", {
+  razorpayPaymentId: text("razorpay_payment_id").unique(),
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => usersTable.id),
   type: text("type").notNull(),

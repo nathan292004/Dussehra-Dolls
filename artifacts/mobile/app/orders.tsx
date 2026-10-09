@@ -60,7 +60,7 @@ export default function OrdersScreen() {
           <View style={styles.empty}>
             <Ionicons name="bag-outline" size={64} color={Colors.light.border} />
             <Text style={styles.emptyTitle}>No orders yet</Text>
-            <Pressable style={styles.shopBtn} onPress={() => router.push("/(tabs)/")}>
+            <Pressable style={styles.shopBtn} onPress={() => router.push("/(tabs)")}>
               <Text style={styles.shopBtnText}>Start Shopping</Text>
             </Pressable>
           </View>

@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useCallback } from "react";
 import {
   View,
   Text,
@@ -10,10 +10,11 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from "react-native-reanimated";
 import Colors from "@/constants/colors";
+import { productImageUrl } from "@/lib/product-image";
 import { useCart } from "@/context/cart";
 import { useAuth } from "@/context/auth";
 
@@ -27,7 +28,7 @@ function CartItemRow({ item, onUpdate, onRemove }: { item: any; onUpdate: (qty: 
     <Animated.View style={[styles.cartItem, animStyle]}>
       <View style={styles.itemImage}>
         {item.product?.imageUrl ? (
-          <Image source={{ uri: item.product.imageUrl }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+          <Image source={{ uri: productImageUrl(item.product.imageUrl) }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
         ) : (
           <Ionicons name="image-outline" size={28} color={Colors.light.borderStrong} />
         )}
@@ -72,9 +73,9 @@ export default function CartScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  useEffect(() => {
-    if (user) fetchCart();
-  }, [user]);
+  useFocusEffect(useCallback(() => {
+    void fetchCart();
+  }, [fetchCart]));
 
   if (!user) {
     return (
@@ -100,7 +101,7 @@ export default function CartScreen() {
           <Ionicons name="bag-outline" size={52} color={Colors.light.borderStrong} />
           <Text style={styles.emptyTitle}>Your cart is empty</Text>
           <Text style={styles.emptySubtitle}>Add beautiful dolls to your cart</Text>
-          <Pressable style={styles.shopNowBtn} onPress={() => router.push("/(tabs)/")}>
+          <Pressable style={styles.shopNowBtn} onPress={() => router.push("/(tabs)")}>
             <Text style={styles.shopNowBtnText}>Shop Now</Text>
           </Pressable>
         </View>

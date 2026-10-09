@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { usersTable, walletsTable, otpVerificationsTable } from "@workspace/db/schema";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, sql } from "drizzle-orm";
 import crypto from "crypto";
-import { sendSms } from "../lib/twilio";
+import { sendSms, SmsDeliveryError } from "../lib/twilio";
 
 const router = Router();
 
@@ -16,7 +16,7 @@ function generateToken(userId: number): string {
 }
 
 function generateOtp(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return crypto.randomInt(100000, 1000000).toString();
 }
 
 function normalizePhone(phone: string): string {
@@ -45,7 +45,7 @@ router.post("/send-otp", async (req, res) => {
       .where(
         and(
           eq(otpVerificationsTable.phone, normalized),
-          gt(otpVerificationsTable.expiresAt, new Date(Date.now() - 60_000))
+          gt(otpVerificationsTable.createdAt, sql`CURRENT_TIMESTAMP - INTERVAL '1 minute'`)
         )
       )
       .limit(1);
@@ -57,13 +57,19 @@ router.post("/send-otp", async (req, res) => {
     const otp = generateOtp();
     const expiresAt = new Date(Date.now() + 10 * 60_000);
 
-    await db.insert(otpVerificationsTable).values({ phone: normalized, otp, expiresAt });
+    const [verification] = await db.insert(otpVerificationsTable).values({ phone: normalized, otp, expiresAt }).returning();
 
     try {
       await sendSms(normalized, `Your DollDime verification code is: ${otp}. Valid for 10 minutes.`);
     } catch (smsErr) {
-      console.error("SMS failed:", smsErr);
-      return res.status(500).json({ error: "Failed to send OTP. Please try again." });
+      await db.delete(otpVerificationsTable).where(eq(otpVerificationsTable.id, verification.id));
+      console.error("SMS failed:", smsErr instanceof SmsDeliveryError ? smsErr.code : "SMS_PROVIDER_UNAVAILABLE");
+      return res.status(503).json({
+        error: process.env.NODE_ENV === "development" && smsErr instanceof SmsDeliveryError
+          ? smsErr.message
+          : "SMS verification is temporarily unavailable. Please try again later.",
+        code: smsErr instanceof SmsDeliveryError ? smsErr.code : "SMS_PROVIDER_UNAVAILABLE",
+      });
     }
 
     return res.json({ success: true, message: `OTP sent to ${normalized}` });
@@ -101,6 +107,7 @@ router.post("/register", async (req, res) => {
         and(
           eq(otpVerificationsTable.phone, normalized),
           eq(otpVerificationsTable.otp, otp),
+          eq(otpVerificationsTable.verified, false),
           gt(otpVerificationsTable.expiresAt, new Date())
         )
       )

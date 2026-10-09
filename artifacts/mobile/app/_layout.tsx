@@ -4,6 +4,7 @@ import * as SplashScreen from "expo-splash-screen";
 import * as Font from "expo-font";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useState } from "react";
+import { Platform, View, StyleSheet } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -53,6 +54,8 @@ export default function RootLayout() {
   }
 
   return (
+    <View style={styles.previewBackground}>
+    <View style={styles.appFrame} testID="customer-app-frame">
     <SafeAreaProvider>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
@@ -68,5 +71,24 @@ export default function RootLayout() {
         </QueryClientProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
+    </View>
+    </View>
   );
 }
+
+// Keep every customer route (including checkout) phone-sized in the web preview.
+// Native builds continue to use the device's full screen.
+const styles = StyleSheet.create({
+  previewBackground: {
+    flex: 1,
+    backgroundColor: Platform.OS === "web" ? "#e9e7e2" : "transparent",
+    alignItems: "center",
+  },
+  appFrame: {
+    flex: 1,
+    width: "100%",
+    maxWidth: Platform.OS === "web" ? 430 : undefined,
+    overflow: "hidden",
+    backgroundColor: "#FAFAF8",
+  },
+});

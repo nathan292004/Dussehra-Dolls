@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { useAuth, getApiBase } from "@/context/auth";
@@ -53,7 +53,7 @@ export default function WalletScreen() {
     } catch { /* ignore */ } finally { setIsLoading(false); }
   }, [token]);
 
-  useEffect(() => { fetchWallet(); }, [fetchWallet]);
+  useFocusEffect(useCallback(() => { void fetchWallet(); }, [fetchWallet]));
 
   const addFunds = async () => {
     const amt = parseFloat(amount);

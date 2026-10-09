@@ -14,7 +14,7 @@ import {
 import Slider from "@react-native-community/slider";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { useAuth, getApiBase } from "@/context/auth";
@@ -42,11 +42,9 @@ interface MyChitEnrollment {
   status: string;
 }
 
-function calcMaxMonths() {
-  const now = new Date();
-  const diff = Math.floor((DEADLINE.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 30));
-  return Math.max(1, Math.min(24, diff));
-}
+// Match the API's supported duration range. The campaign cutoff is validated
+// separately; it must not collapse the slider to identical min/max values.
+const MAX_DURATION_MONTHS = 24;
 
 function formatAmount(n: number) {
   return "₹" + n.toLocaleString("en-IN");
@@ -77,7 +75,7 @@ export default function ChitsScreen() {
   const [customAmountText, setCustomAmountText] = useState("");
   const [customError, setCustomError] = useState("");
 
-  const maxMonths = calcMaxMonths();
+  const maxMonths = MAX_DURATION_MONTHS;
 
   const fetchMyChits = useCallback(async () => {
     if (!token) return;
@@ -89,9 +87,9 @@ export default function ChitsScreen() {
     } catch { /* ignore */ }
   }, [token]);
 
-  useEffect(() => {
-    fetchMyChits().finally(() => setIsLoading(false));
-  }, [fetchMyChits]);
+  useFocusEffect(useCallback(() => {
+    void fetchMyChits().finally(() => setIsLoading(false));
+  }, [fetchMyChits]));
 
   const openDurationModal = (amount: number) => {
     setSelectedAmount(amount);
@@ -402,6 +400,8 @@ export default function ChitsScreen() {
 
             <Text style={styles.durationLabel}>Duration (months):</Text>
             <Slider
+              accessibilityLabel="Duration in months"
+              testID="chit-duration-slider"
               style={styles.slider}
               minimumValue={1}
               maximumValue={maxMonths}
@@ -411,6 +411,7 @@ export default function ChitsScreen() {
               minimumTrackTintColor={Colors.light.tint}
               maximumTrackTintColor={Colors.light.border}
               thumbTintColor={Colors.light.tint}
+              disabled={enrolling}
             />
             <Text style={styles.durationValue}>{duration} month{duration !== 1 ? "s" : ""}</Text>
 

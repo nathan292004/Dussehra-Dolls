@@ -8,6 +8,7 @@ export const ordersTable = pgTable("orders", {
   userId: integer("user_id").notNull().references(() => usersTable.id),
   status: text("status").notNull().default("pending"),
   paymentStatus: text("payment_status").notNull().default("pending"),
+  razorpayOrderId: text("razorpay_order_id").unique(),
   items: jsonb("items").$type<Array<{
     productId: number;
     productName: string;

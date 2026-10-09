@@ -53,8 +53,9 @@ router.post("/upload", upload.single("image"), (req, res) => {
     req.get("x-forwarded-host") ||
     req.get("host") ||
     "localhost:8080";
-  const protocol = domain.startsWith("localhost") ? "http" : "https";
-  const url = `${protocol}://${domain}/api/uploads/${req.file.filename}`;
+  const protocol = process.env.REPLIT_DEV_DOMAIN ? "https" : req.protocol;
+  const origin = process.env.API_PUBLIC_ORIGIN || `${protocol}://${domain}`;
+  const url = `${origin.replace(/\/$/, "")}/api/uploads/${req.file.filename}`;
   res.json({ url });
 });
 
