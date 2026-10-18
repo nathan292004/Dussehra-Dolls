@@ -10,7 +10,7 @@ type OrderItem = { productId: number; productName: string; quantity: number; pri
 type Order = {
   id: number; userId: number; customerName: string; customerPhone?: string;
   items: OrderItem[]; total: number; status: string; paymentStatus: string;
-  address?: string; paymentMethod?: string; createdAt: string;
+  address?: string; addressLatitude?: number | null; addressLongitude?: number | null; paymentMethod?: string; createdAt: string;
 };
 
 function useOrders() {
@@ -28,16 +28,17 @@ function useOrders() {
 function useUpdateOrder() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, status, paymentStatus }: { id: number; status?: string; paymentStatus?: string }) => {
+    mutationFn: async ({ id, status }: { id: number; status?: string }) => {
       const res = await fetch(`/api/admin/orders/${id}/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, paymentStatus }),
+        body: JSON.stringify({ status }),
       });
-      if (!res.ok) throw new Error("Failed");
+      if (!res.ok) { const body = await res.json(); throw new Error(body.error || "Could not update order"); }
       return res.json();
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/admin/orders"] }),
+    onError: error => window.alert(error.message),
   });
 }
 
@@ -159,21 +160,16 @@ export function Orders() {
                             "bg-muted text-muted-foreground"
                           }`}
                         >
-                          {ORDER_STATUSES.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
+                          {ORDER_STATUSES.filter(s => order.paymentStatus === "paid" ? s !== "cancelled" : ["pending", "cancelled"].includes(s)).map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
                         </select>
                       </td>
                       <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                        <select
-                          value={order.paymentStatus}
-                          onChange={e => updateMutation.mutate({ id: order.id, paymentStatus: e.target.value })}
-                          className={`text-xs font-semibold rounded px-2 py-1 border-none outline-none cursor-pointer appearance-none ${
+                        <span className={`text-xs font-semibold rounded px-2 py-1 ${
                             order.paymentStatus === "paid" ? "bg-green-100 text-green-700" :
                             order.paymentStatus === "failed" ? "bg-red-100 text-red-700" :
                             "bg-muted text-muted-foreground"
                           }`}
-                        >
-                          {PAYMENT_STATUSES.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
-                        </select>
+                        >{order.paymentStatus.toUpperCase()}</span>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground text-xs">{format(new Date(order.createdAt), "d/M/yyyy")}</td>
                       <td className="px-4 py-3">
@@ -209,6 +205,7 @@ export function Orders() {
                                   <h4 className="text-xs font-bold uppercase text-muted-foreground mb-3 flex items-center gap-1.5"><MapPin className="w-4 h-4" /> Shipping</h4>
                                   <div className="bg-white border border-border rounded-xl p-4 text-sm text-muted-foreground">
                                     {order.address || "No address provided."}
+                                    {order.address && <div className="mt-2"><a href={`https://www.google.com/maps/search/?api=1&query=${order.addressLatitude != null && order.addressLongitude != null ? `${order.addressLatitude},${order.addressLongitude}` : encodeURIComponent(order.address)}`} target="_blank" rel="noopener noreferrer" className="text-primary underline">Open in Google Maps</a></div>}
                                   </div>
                                 </div>
                                 <div>

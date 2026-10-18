@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, numeric, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, numeric, timestamp, jsonb, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -18,6 +18,8 @@ export const ordersTable = pgTable("orders", {
   }>>().notNull(),
   total: numeric("total", { precision: 10, scale: 2 }).notNull(),
   address: text("address"),
+  addressLatitude: doublePrecision("address_latitude"),
+  addressLongitude: doublePrecision("address_longitude"),
   paymentMethod: text("payment_method"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

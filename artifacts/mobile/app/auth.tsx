@@ -35,6 +35,7 @@ export default function AuthScreen() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [developmentOtp, setDevelopmentOtp] = useState<string | null>(null);
   const [otpSent, setOtpSent] = useState(false);
   const [countdown, setCountdown] = useState(0);
 
@@ -58,7 +59,8 @@ export default function AuthScreen() {
 
     setIsLoading(true);
     try {
-      await sendOtp(phone);
+      const localCode = await sendOtp(phone);
+      setDevelopmentOtp(localCode);
       setOtpSent(true);
       setRegisterStep("otp");
       startCountdown();
@@ -76,7 +78,8 @@ export default function AuthScreen() {
     setError("");
     setIsLoading(true);
     try {
-      await sendOtp(phone);
+      const localCode = await sendOtp(phone);
+      setDevelopmentOtp(localCode);
       setOtp(["", "", "", "", "", ""]);
       startCountdown();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -313,7 +316,8 @@ export default function AuthScreen() {
               </View>
               <Text style={styles.otpTitle}>Verify Your Number</Text>
               <Text style={styles.otpSubtitle}>
-                We sent a 6-digit code to{"\n"}
+                {developmentOtp ? "Use this local test code:" : "We sent a 6-digit code to"}{"\n"}
+                {developmentOtp ? <Text style={{ color: Colors.light.tint, fontWeight: "700" }}>{developmentOtp}{"\n"}</Text> : null}
                 <Text style={{ color: Colors.light.tint }}>{phone}</Text>
               </Text>
             </View>

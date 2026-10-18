@@ -1,125 +1,29 @@
-import { sendWhatsApp } from "./twilio";
+import { db } from "@workspace/db";
+import { usersTable, whatsappMessagesTable, whatsappPreferencesTable } from "@workspace/db/schema";
+import { eq } from "drizzle-orm";
 
-function fmt(amount: number) {
-  return `₹${amount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+export type WhatsAppKind = "order_confirmation" | "chit_payment" | "wallet_topup" | "chit_reminder" | "marketing";
+
+export async function queueWhatsApp(userId: number, kind: WhatsAppKind, variables: Record<string, string>, dedupeKey: string) {
+  const [recipient] = await db.select({ phone: usersTable.phone, active: usersTable.isActive,
+    orderUpdates: whatsappPreferencesTable.orderUpdates, marketing: whatsappPreferencesTable.marketing })
+    .from(usersTable).leftJoin(whatsappPreferencesTable, eq(usersTable.id, whatsappPreferencesTable.userId))
+    .where(eq(usersTable.id, userId)).limit(1);
+  if (!recipient?.active || !recipient.phone || !(kind === "marketing" ? recipient.marketing : recipient.orderUpdates)) return false;
+  const inserted = await db.insert(whatsappMessagesTable).values({ userId, kind, variables, dedupeKey })
+    .onConflictDoNothing().returning({ id: whatsappMessagesTable.id });
+  return inserted.length > 0;
 }
 
-function fmtDate(d: Date | string) {
-  return new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+export function notifyOrderConfirmed(opts: { userId: number; orderId: number; total: number }) {
+  return queueWhatsApp(opts.userId, "order_confirmation", { "1": String(opts.orderId), "2": opts.total.toFixed(2) }, `order:${opts.orderId}`);
 }
 
-// ── Order confirmation ────────────────────────────────────────────────────────
-export async function notifyOrderConfirmed(opts: {
-  phone: string;
-  name: string;
-  orderId: number;
-  total: number;
-  items: { productName: string; quantity: number; price: number }[];
-}) {
-  const itemLines = opts.items
-    .map(i => `  • ${i.productName} × ${i.quantity} — ${fmt(i.price * i.quantity)}`)
-    .join("\n");
-
-  const msg = [
-    `🎉 *Order Confirmed! — DollDime*`,
-    ``,
-    `Hi ${opts.name}, your order has been placed successfully.`,
-    ``,
-    `*Order #${opts.orderId}*`,
-    itemLines,
-    ``,
-    `*Total Paid:* ${fmt(opts.total)}`,
-    ``,
-    `Your dolls will be delivered soon. Thank you for shopping with DollDime! 🪆`,
-  ].join("\n");
-
-  return sendWhatsApp(opts.phone, msg);
+export function notifyWalletTopUp(opts: { userId: number; paymentId: string; credited: number; newBalance: number }) {
+  return queueWhatsApp(opts.userId, "wallet_topup", { "1": opts.credited.toFixed(2), "2": opts.newBalance.toFixed(2) }, `wallet:${opts.paymentId}`);
 }
 
-// ── Chit EMI payment confirmation ────────────────────────────────────────────
-export async function notifyChitEmiPaid(opts: {
-  phone: string;
-  name: string;
-  planName: string;
-  emiAmount: number;
-  totalPaid: number;
-  totalAmount: number;
-  isCompleted: boolean;
-  nextPaymentDate?: Date | null;
-}) {
-  const progress = Math.round((opts.totalPaid / opts.totalAmount) * 100);
-
-  const lines = [
-    `✅ *EMI Payment Received — DollDime*`,
-    ``,
-    `Hi ${opts.name}, your EMI for *${opts.planName}* has been recorded.`,
-    ``,
-    `*EMI Paid:* ${fmt(opts.emiAmount)}`,
-    `*Total Paid:* ${fmt(opts.totalPaid)} / ${fmt(opts.totalAmount)} (${progress}%)`,
-  ];
-
-  if (opts.isCompleted) {
-    lines.push(``, `🎊 *Congratulations!* You've completed your chit plan. Your savings journey is complete!`);
-  } else if (opts.nextPaymentDate) {
-    lines.push(``, `📅 *Next EMI Due:* ${fmtDate(opts.nextPaymentDate)}`);
-  }
-
-  lines.push(``, `Thank you for saving with DollDime! 💰`);
-
-  return sendWhatsApp(opts.phone, lines.join("\n"));
-}
-
-// ── Wallet top-up confirmation ─────────────────────────────────────────────
-export async function notifyWalletTopUp(opts: {
-  phone: string;
-  name: string;
-  credited: number;
-  newBalance: number;
-}) {
-  const msg = [
-    `💳 *Wallet Topped Up — DollDime*`,
-    ``,
-    `Hi ${opts.name}, ${fmt(opts.credited)} has been added to your DollDime wallet.`,
-    ``,
-    `*New Balance:* ${fmt(opts.newBalance)}`,
-    ``,
-    `Use your wallet to shop or pay chit EMIs instantly. 🛍️`,
-  ].join("\n");
-
-  return sendWhatsApp(opts.phone, msg);
-}
-
-// ── Chit due reminder ─────────────────────────────────────────────────────────
-export async function notifyChitDueReminder(opts: {
-  phone: string;
-  name: string;
-  planName: string;
-  emiAmount: number;
-  dueDate: Date;
-  daysLeft: number;
-}) {
-  const urgency = opts.daysLeft <= 0
-    ? `⚠️ *OVERDUE — DollDime Chit Reminder*`
-    : opts.daysLeft === 1
-    ? `🔔 *EMI Due Tomorrow — DollDime*`
-    : `📅 *Upcoming EMI Reminder — DollDime*`;
-
-  const dueLabel = opts.daysLeft <= 0
-    ? `Your EMI was due on ${fmtDate(opts.dueDate)} and has not been paid yet.`
-    : opts.daysLeft === 1
-    ? `Your EMI is due tomorrow, ${fmtDate(opts.dueDate)}.`
-    : `Your EMI is due in ${opts.daysLeft} days on ${fmtDate(opts.dueDate)}.`;
-
-  const msg = [
-    urgency,
-    ``,
-    `Hi ${opts.name}, ${dueLabel}`,
-    ``,
-    `*Plan:* ${opts.planName}`,
-    `*EMI Amount:* ${fmt(opts.emiAmount)}`,
-    ``,
-    `Open the DollDime app to pay your EMI and keep your chit plan on track. 💪`,
-  ].join("\n");
-
-  return sendWhatsApp(opts.phone, msg);
+export function notifyChitDueReminder(opts: { userId: number; enrollmentId: number; planName: string; emiAmount: number; dueDate: Date }) {
+  const date = opts.dueDate.toISOString().slice(0, 10);
+  return queueWhatsApp(opts.userId, "chit_reminder", { "1": opts.planName, "2": opts.emiAmount.toFixed(2), "3": date }, `reminder:${opts.enrollmentId}:${date}`);
 }

@@ -92,7 +92,7 @@ The launcher creates an ignored `artifacts/api-server/.env` containing a generat
 
 The Replit export includes source code and three uploaded images, but no database dump. The new local database starts empty. Add products through the admin portal or obtain a PostgreSQL export from the original Replit database to recover existing records.
 
-Set real `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` in the API `.env` to enable payments. Without them, the API starts and payment endpoints return an unavailable response. Set Twilio credentials using `artifacts/api-server/.env.example` to enable registration OTPs, SMS and WhatsApp. These service secrets were not included in the export and cannot be installed as npm dependencies.
+Set real `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` in the API `.env` to enable payments. Without them, the API starts and payment endpoints return an unavailable response. Registration sends real SMS OTPs when Twilio credentials and an SMS-capable `TWILIO_FROM_NUMBER` are configured. For local testing without SMS credentials, set `DEV_OTP_MODE=true` while `NODE_ENV=development`; the app will show a test code. Never enable development OTP mode in a deployed environment. Twilio is used for SMS; WhatsApp notifications use Meta's Cloud API. Service credentials are not npm dependencies.
 
 ## Portability fixes
 
@@ -108,14 +108,26 @@ or verified recipient is not an SMS sender. Run this read-only diagnostic:
 ```
 
 It reports provisioning and credentials errors without exposing credentials or
-full phone numbers, and does not send a message. Development OTP failures now
-show an actionable configuration message; production uses a generic unavailable
-message. Failed sends do not leave an OTP record that blocks immediate retries.
+full phone numbers, and does not send a message. When local OTP mode is off,
+development failures show an actionable configuration message; production uses
+a generic unavailable message. Failed sends do not leave an OTP record that
+blocks immediate retries.
 
 Customers register themselves; the registration route creates their database
 record and wallet automatically. A managed provider such as Clerk can replace
 the password/OTP and session implementation, but requires a configured Clerk
 application and verified backend sessions linked to the existing customer IDs.
+
+### Google Maps address picker
+
+The Profile → Addresses screen and checkout share a Google Maps picker. The
+customer searches for a place or taps the map to place a pin; the saved address
+and exact latitude/longitude are attached to the customer address or order. Add
+`EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` to `artifacts/mobile/.env` after enabling
+**Maps JavaScript API** and **Geocoding API** with billing in Google Cloud. Restrict
+the key to the local app origin and the production app/API origins. Restart Expo
+after changing the key. The first database rollout also needs
+`lib/db/migrations/20261015_customer_addresses.sql` applied.
 
 ## Local implementation details
 
@@ -123,7 +135,7 @@ Removed Replit's native-binary exclusions, replaced Linux-only installation and 
 
 Local uploads use the same configured API origin so the phone can load inventory images. Added the missing Expo Babel preset and aligned native dependencies with SDK 54.
 
-The original API production build still warns about `import.meta` in its CommonJS output, and the original mobile deployment build expects a Replit domain. Use the local development launcher for this setup; deployment configuration needs separate work.
+The API production build now emits an ESM `index.mjs` bundle and passed a local production readiness smoke check. The mobile deployment build still needs a real public API URL, EAS project and Android release credentials.
 
 ## Validation completed
 

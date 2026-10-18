@@ -7,6 +7,7 @@ import {
   Pressable,
   ActivityIndicator,
   Platform,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,6 +23,8 @@ interface Order {
   items: Array<{ productId: number; productName: string; quantity: number; price: number; subtotal: number }>;
   total: number;
   address?: string;
+  addressLatitude?: number | null;
+  addressLongitude?: number | null;
   paymentMethod?: string;
   createdAt: string;
 }
@@ -140,6 +143,9 @@ export default function OrderDetailScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.detailLabel}>Delivery Address</Text>
                   <Text style={styles.detailValue}>{order.address}</Text>
+                  <Pressable onPress={() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${order.addressLatitude != null && order.addressLongitude != null ? `${order.addressLatitude},${order.addressLongitude}` : encodeURIComponent(order.address!)}`)}>
+                    <Text style={[styles.detailValue, { color: Colors.light.tint, marginTop: 6 }]}>Open in Google Maps ↗</Text>
+                  </Pressable>
                 </View>
               </View>
             )}

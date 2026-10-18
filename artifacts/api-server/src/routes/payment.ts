@@ -6,24 +6,23 @@ import {
   ordersTable,
   cartItemsTable,
   productsTable,
-  chitEnrollmentsTable,
-  chitPlansTable,
+  chitPaymentIntentsTable,
   transactionsTable,
   walletsTable,
   usersTable,
 } from "@workspace/db/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
+import { createChitPayment, settleChitPayment, PaymentFlowError } from "../services/chit-payments";
 import { authMiddleware, AuthRequest } from "../middlewares/auth";
 import {
   notifyOrderConfirmed,
-  notifyChitEmiPaid,
   notifyWalletTopUp,
 } from "../lib/whatsapp-notifications";
 
 const router = Router();
 router.use(authMiddleware as any);
 
-const razorpay =
+export const razorpay =
   process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
     ? new Razorpay({
         key_id: process.env.RAZORPAY_KEY_ID!,
@@ -31,7 +30,8 @@ const razorpay =
       })
     : null;
 
-router.use((_req, res, next) => {
+router.use((req, res, next) => {
+  if (req.path === "/checkout-with-wallet") return next();
   if (!razorpay) {
     res
       .status(503)
@@ -66,9 +66,12 @@ function validSignature(
 // Create Razorpay order for cart checkout
 router.post("/create-order", async (req: AuthRequest, res) => {
   try {
-    const { address } = req.body;
-    if (!address?.trim())
+    const { address, latitude, longitude } = req.body;
+    if (typeof address !== "string" || address.trim().length < 10 || address.length > 500)
       return res.status(400).json({ error: "Delivery address is required" });
+    if ((latitude !== undefined || longitude !== undefined) &&
+      (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180))
+      return res.status(400).json({ error: "Selected map location is invalid" });
 
     const cartItems = await db
       .select({ cartItem: cartItemsTable, product: productsTable })
@@ -109,7 +112,7 @@ router.post("/create-order", async (req: AuthRequest, res) => {
     const rzpOrder = await razorpay!.orders.create({
       amount: Math.round(total * 100),
       currency: "INR",
-      notes: { userId: String(req.userId), address },
+      notes: { userId: String(req.userId), address, ...(latitude !== undefined ? { latitude: String(latitude), longitude: String(longitude) } : {}) },
     });
 
     // Create a pending DB order
@@ -120,6 +123,8 @@ router.post("/create-order", async (req: AuthRequest, res) => {
         items: orderItems,
         total: total.toFixed(2),
         address,
+        addressLatitude: latitude ?? null,
+        addressLongitude: longitude ?? null,
         paymentMethod: "razorpay",
         status: "pending",
         paymentStatus: "pending",
@@ -163,8 +168,13 @@ router.post("/verify-order", async (req: AuthRequest, res) => {
       return res
         .status(400)
         .json({ error: "Payment order does not match this purchase." });
-    const providerOrder = await razorpay!.orders.fetch(razorpayOrderId);
+    const [providerOrder, providerPayment] = await Promise.all([
+      razorpay!.orders.fetch(razorpayOrderId), razorpay!.payments.fetch(razorpayPaymentId),
+    ]);
     if (
+      providerPayment.status !== "captured" ||
+      providerPayment.order_id !== razorpayOrderId ||
+      Number(providerPayment.amount) !== Math.round(parseFloat(invoice.total) * 100) ||
       String(providerOrder.notes?.userId) !== String(req.userId) ||
       providerOrder.status !== "paid" ||
       Number(providerOrder.amount_paid) !==
@@ -227,24 +237,9 @@ router.post("/verify-order", async (req: AuthRequest, res) => {
       return { order: confirmed, applied: true };
     });
 
-    // Send WhatsApp order confirmation (non-blocking)
-    const [user] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, req.userId!))
-      .limit(1);
-    if (applied && user?.phone) {
-      notifyOrderConfirmed({
-        phone: user.phone,
-        name: user.name || "Customer",
-        orderId: order.id,
-        total: parseFloat(order.total),
-        items: (order.items as any[]).map((i) => ({
-          productName: i.productName,
-          quantity: i.quantity,
-          price: i.price,
-        })),
-      }).catch((e) => console.error("[WhatsApp] Order notify failed:", e));
+    if (applied) {
+      notifyOrderConfirmed({ userId: req.userId!, orderId: order.id, total: Number(order.total) })
+        .catch((e) => console.error("[WhatsApp] Queue order failed:", e));
     }
 
     return res.json({
@@ -258,168 +253,96 @@ router.post("/verify-order", async (req: AuthRequest, res) => {
   }
 });
 
-// Create Razorpay order for chit EMI payment
-router.post("/create-chit-payment", async (req: AuthRequest, res) => {
+// Spend verified store balance on dolls.
+router.post("/checkout-with-wallet", async (req: AuthRequest, res) => {
+  const address = typeof req.body?.address === "string" ? req.body.address.trim() : "";
+  const { latitude, longitude } = req.body || {};
+  if (address.length < 10 || address.length > 500) return res.status(400).json({ error: "Enter a complete delivery address" });
+  if ((latitude !== undefined || longitude !== undefined) &&
+    (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180)) {
+    return res.status(400).json({ error: "Selected map location is invalid" });
+  }
   try {
-    const { enrollmentId } = req.body;
-
-    const [row] = await db
-      .select({ enrollment: chitEnrollmentsTable, plan: chitPlansTable })
-      .from(chitEnrollmentsTable)
-      .leftJoin(
-        chitPlansTable,
-        eq(chitEnrollmentsTable.chitPlanId, chitPlansTable.id),
-      )
-      .where(eq(chitEnrollmentsTable.id, enrollmentId))
-      .limit(1);
-
-    if (!row || row.enrollment.userId !== req.userId) {
-      return res.status(404).json({ error: "Chit enrollment not found" });
-    }
-
-    const emi = parseFloat(row.plan!.monthlyContribution);
-
-    const rzpOrder = await razorpay!.orders.create({
-      amount: Math.round(emi * 100),
-      currency: "INR",
-      notes: { enrollmentId: String(enrollmentId), userId: String(req.userId) },
+    const result = await db.transaction(async tx => {
+      const [wallet] = await tx.select().from(walletsTable)
+        .where(eq(walletsTable.userId, req.userId!)).for("update").limit(1);
+      if (!wallet) throw new PaymentFlowError(409, "No store balance is available");
+      const cart = await tx.select({ cartItem: cartItemsTable, product: productsTable })
+        .from(cartItemsTable).leftJoin(productsTable, eq(cartItemsTable.productId, productsTable.id))
+        .where(eq(cartItemsTable.userId, req.userId!));
+      if (!cart.length || cart.some(row => !row.product || !Number.isInteger(row.cartItem.quantity) || row.cartItem.quantity < 1)) {
+        throw new PaymentFlowError(409, "Cart is empty or invalid");
+      }
+      const items = cart.map(row => ({
+        productId: row.cartItem.productId, productName: row.product!.name,
+        quantity: row.cartItem.quantity, price: Number(row.product!.price),
+        subtotal: Number(row.product!.price) * row.cartItem.quantity,
+      }));
+      const totalPaise = items.reduce((sum, item) => sum + Math.round(item.subtotal * 100), 0);
+      if (totalPaise <= 0 || Math.round(Number(wallet.balance) * 100) < totalPaise) {
+        throw new PaymentFlowError(409, "Insufficient store balance");
+      }
+      for (const item of items) {
+        const changed = await tx.update(productsTable).set({
+          stock: sql`${productsTable.stock} - ${item.quantity}`, updatedAt: new Date(),
+        }).where(and(eq(productsTable.id, item.productId), gte(productsTable.stock, item.quantity)))
+          .returning({ id: productsTable.id });
+        if (!changed.length) throw new PaymentFlowError(409, "A product is out of stock");
+      }
+      await tx.update(walletsTable).set({
+        balance: sql`${walletsTable.balance} - ${totalPaise / 100}`, updatedAt: new Date(),
+      }).where(eq(walletsTable.id, wallet.id));
+      const [order] = await tx.insert(ordersTable).values({
+        userId: req.userId!, items, total: (totalPaise / 100).toFixed(2), address,
+        addressLatitude: latitude ?? null, addressLongitude: longitude ?? null,
+        paymentMethod: "store_balance", status: "confirmed", paymentStatus: "paid",
+      }).returning();
+      await tx.insert(transactionsTable).values({
+        userId: req.userId!, type: "debit", amount: (totalPaise / 100).toFixed(2),
+        description: `Doll order #${order.id} paid with store balance`,
+      });
+      await tx.delete(cartItemsTable).where(eq(cartItemsTable.userId, req.userId!));
+      return { success: true, orderId: order.id, total: totalPaise / 100 };
     });
-
-    return res.json({
-      razorpayOrderId: rzpOrder.id,
-      amount: rzpOrder.amount,
-      currency: rzpOrder.currency,
-      emi,
-      keyId: process.env.RAZORPAY_KEY_ID,
-      planName: row.plan!.name,
-    });
+    notifyOrderConfirmed({ userId: req.userId!, orderId: result.orderId, total: result.total })
+      .catch((e) => console.error("[WhatsApp] Queue order failed:", e));
+    return res.json(result);
   } catch (err) {
-    console.error("Razorpay chit order error:", err);
-    return res
-      .status(500)
-      .json({ error: "Failed to create chit payment order" });
+    if (err instanceof PaymentFlowError) return res.status(err.statusCode).json({ error: err.message });
+    console.error("Store balance checkout failed:", err);
+    return res.status(500).json({ error: "Could not complete checkout" });
   }
 });
 
-// Verify chit EMI payment
+// Doll plan installments use one durable server-side payment intent.
+router.post("/create-chit-payment", async (req: AuthRequest, res) => {
+  try {
+    const result = await createChitPayment(razorpay!, req.userId!, Number(req.body?.enrollmentId));
+    return res.json({ ...result, keyId: process.env.RAZORPAY_KEY_ID });
+  } catch (err) {
+    if (err instanceof PaymentFlowError) return res.status(err.statusCode).json({ error: err.message });
+    console.error("Create installment payment failed:", err);
+    return res.status(500).json({ error: "Failed to create installment payment" });
+  }
+});
+
 router.post("/verify-chit-payment", async (req: AuthRequest, res) => {
   try {
-    const {
-      razorpayOrderId,
-      razorpayPaymentId,
-      razorpaySignature,
-      enrollmentId,
-    } = req.body;
-    if (
-      !validSignature(razorpayOrderId, razorpayPaymentId, razorpaySignature)
-    ) {
+    const { razorpayOrderId, razorpayPaymentId, razorpaySignature, enrollmentId } = req.body;
+    if (!validSignature(razorpayOrderId, razorpayPaymentId, razorpaySignature)) {
       return res.status(400).json({ error: "Payment verification failed" });
     }
-
-    const [row] = await db
-      .select({ enrollment: chitEnrollmentsTable, plan: chitPlansTable })
-      .from(chitEnrollmentsTable)
-      .leftJoin(
-        chitPlansTable,
-        eq(chitEnrollmentsTable.chitPlanId, chitPlansTable.id),
-      )
-      .where(eq(chitEnrollmentsTable.id, enrollmentId))
-      .limit(1);
-
-    if (!row || !row.plan || row.enrollment.userId !== req.userId)
-      return res.status(404).json({ error: "Enrollment not found" });
-
-    const emi = parseFloat(row.plan!.monthlyContribution);
-    const totalAmount = parseFloat(row.plan!.totalAmount);
-    const providerOrder = await razorpay!.orders.fetch(razorpayOrderId);
-    if (
-      String(providerOrder.notes?.userId) !== String(req.userId) ||
-      String(providerOrder.notes?.enrollmentId) !== String(enrollmentId) ||
-      providerOrder.status !== "paid" ||
-      Number(providerOrder.amount_paid) !== Math.round(emi * 100)
-    ) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "The installment payment does not match this enrollment or has not been captured.",
-        });
+    // The intent itself binds the payment to the enrollment. Never trust the client amount.
+    const [intent] = await db.select({ enrollmentId: chitPaymentIntentsTable.enrollmentId })
+      .from(chitPaymentIntentsTable).where(eq(chitPaymentIntentsTable.razorpayOrderId, razorpayOrderId)).limit(1);
+    if (!intent || intent.enrollmentId !== Number(enrollmentId)) {
+      return res.status(400).json({ error: "Payment enrollment mismatch" });
     }
-    const { newAmountPaid, isCompleted, applied } = await db.transaction(
-      async (tx) => {
-        await tx.execute(
-          sql`SELECT pg_advisory_xact_lock(hashtext(${razorpayPaymentId}))`,
-        );
-        const [current] = await tx
-          .select()
-          .from(chitEnrollmentsTable)
-          .where(eq(chitEnrollmentsTable.id, enrollmentId))
-          .for("update");
-        const [previous] = await tx
-          .select()
-          .from(transactionsTable)
-          .where(eq(transactionsTable.razorpayPaymentId, razorpayPaymentId))
-          .limit(1);
-        if (previous)
-          return {
-            newAmountPaid: parseFloat(current.amountPaid),
-            isCompleted: current.status === "completed",
-            applied: false,
-          };
-        const paid = parseFloat(current.amountPaid) + emi;
-        const completed = paid >= totalAmount;
-        const nextPayment = new Date();
-        nextPayment.setMonth(nextPayment.getMonth() + 1);
-        await tx
-          .update(chitEnrollmentsTable)
-          .set({
-            amountPaid: paid.toFixed(2),
-            status: completed ? "completed" : "active",
-            nextPaymentDate: completed ? null : nextPayment,
-          })
-          .where(eq(chitEnrollmentsTable.id, enrollmentId));
-        await tx
-          .insert(transactionsTable)
-          .values({
-            userId: req.userId!,
-            type: "debit",
-            amount: emi.toFixed(2),
-            razorpayPaymentId,
-            description: `Chit EMI – ${row.plan!.name} (${razorpayPaymentId})`,
-          });
-        return { newAmountPaid: paid, isCompleted: completed, applied: true };
-      },
-    );
-
-    // Send WhatsApp chit EMI confirmation (non-blocking)
-    const [chitUser] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, req.userId!))
-      .limit(1);
-    if (applied && chitUser?.phone) {
-      const nextDate = isCompleted
-        ? null
-        : (() => {
-            const d = new Date();
-            d.setMonth(d.getMonth() + 1);
-            return d;
-          })();
-      notifyChitEmiPaid({
-        phone: chitUser.phone,
-        name: chitUser.name || "Customer",
-        planName: row.plan!.name,
-        emiAmount: emi,
-        totalPaid: newAmountPaid,
-        totalAmount: totalAmount,
-        isCompleted,
-        nextPaymentDate: nextDate,
-      }).catch((e) => console.error("[WhatsApp] Chit EMI notify failed:", e));
-    }
-
-    return res.json({ success: true, isCompleted, newAmountPaid });
+    const result = await settleChitPayment(razorpay!, razorpayOrderId, razorpayPaymentId, req.userId!);
+    return res.json(result);
   } catch (err) {
-    console.error("Razorpay chit verify error:", err);
+    if (err instanceof PaymentFlowError) return res.status(err.statusCode).json({ error: err.message });
+    console.error("Verify installment payment failed:", err);
     return res.status(500).json({ error: "Payment verification failed" });
   }
 });
@@ -428,8 +351,8 @@ router.post("/verify-chit-payment", async (req: AuthRequest, res) => {
 router.post("/create-wallet-payment", async (req: AuthRequest, res) => {
   try {
     const { amount } = req.body;
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    const parsedAmount = Number(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount < 1 || parsedAmount > 100000 || Math.abs(Math.round(parsedAmount * 100) - parsedAmount * 100) > 1e-7) {
       return res.status(400).json({ error: "Invalid amount" });
     }
 
@@ -464,8 +387,13 @@ router.post("/verify-wallet-payment", async (req: AuthRequest, res) => {
     }
 
     // Fetch order from Razorpay to get the amount
-    const rzpOrder = await razorpay!.orders.fetch(razorpayOrderId);
+    const [rzpOrder, providerPayment] = await Promise.all([
+      razorpay!.orders.fetch(razorpayOrderId), razorpay!.payments.fetch(razorpayPaymentId),
+    ]);
     if (
+      providerPayment.status !== "captured" ||
+      providerPayment.order_id !== razorpayOrderId ||
+      Number(providerPayment.amount) !== Number(rzpOrder.amount_paid) ||
       String(rzpOrder.notes?.userId) !== String(req.userId) ||
       rzpOrder.notes?.purpose !== "wallet_topup" ||
       rzpOrder.status !== "paid" ||
@@ -511,24 +439,11 @@ router.post("/verify-wallet-payment", async (req: AuthRequest, res) => {
       return true;
     });
 
-    // Fetch updated balance for notification
-    const [updatedWallet] = await db
-      .select()
-      .from(walletsTable)
-      .where(eq(walletsTable.userId, req.userId!))
-      .limit(1);
-    const [walletUser] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, req.userId!))
-      .limit(1);
-    if (applied && walletUser?.phone) {
-      notifyWalletTopUp({
-        phone: walletUser.phone,
-        name: walletUser.name || "Customer",
-        credited: amountInRupees,
-        newBalance: parseFloat(updatedWallet?.balance ?? "0"),
-      }).catch((e) => console.error("[WhatsApp] Wallet notify failed:", e));
+    if (applied) {
+      const [updatedWallet] = await db.select().from(walletsTable).where(eq(walletsTable.userId, req.userId!)).limit(1);
+      notifyWalletTopUp({ userId: req.userId!, paymentId: razorpayPaymentId, credited: amountInRupees,
+        newBalance: Number(updatedWallet?.balance ?? 0) })
+        .catch((e) => console.error("[WhatsApp] Queue wallet update failed:", e));
     }
 
     return res.json({ success: true, credited: applied ? amountInRupees : 0 });

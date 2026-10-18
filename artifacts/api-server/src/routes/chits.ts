@@ -95,10 +95,10 @@ router.post("/enroll-custom", authMiddleware as any, async (req: AuthRequest, re
     if (!amount || !durationMonths) {
       return res.status(400).json({ error: "Amount and durationMonths are required" });
     }
-    const amt = parseFloat(amount);
-    const dur = parseInt(durationMonths);
-    if (isNaN(amt) || amt < 1000) return res.status(400).json({ error: "Minimum amount is ₹1,000" });
-    if (isNaN(dur) || dur < 1 || dur > 24) return res.status(400).json({ error: "Duration must be 1-24 months" });
+    const amt = Number(amount);
+    const dur = Number(durationMonths);
+    if (!Number.isFinite(amt) || amt < 1000 || amt > 1000000 || Math.abs(Math.round(amt * 100) - amt * 100) > 1e-7) return res.status(400).json({ error: "Enter ₹1,000–₹10,00,000 with at most two decimal places" });
+    if (!Number.isInteger(dur) || dur < 1 || dur > 24) return res.status(400).json({ error: "Duration must be 1-24 months" });
 
     const monthlyContribution = amt / dur;
     const endDate = new Date();
@@ -106,7 +106,7 @@ router.post("/enroll-custom", authMiddleware as any, async (req: AuthRequest, re
 
     const [plan] = await db.insert(chitPlansTable).values({
       name: `Custom ₹${amt.toLocaleString("en-IN")} – ${dur} months`,
-      description: `Personal chit plan`,
+      description: `Personal doll prepayment plan`,
       totalAmount: amt.toFixed(2),
       monthlyContribution: monthlyContribution.toFixed(2),
       duration: dur,

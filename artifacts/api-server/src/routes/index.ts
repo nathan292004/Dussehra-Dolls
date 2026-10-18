@@ -8,6 +8,8 @@ import chitsRouter from "./chits";
 import walletRouter from "./wallet";
 import adminRouter from "./admin";
 import paymentRouter from "./payment";
+import whatsappRouter from "./whatsapp";
+import addressesRouter from "./addresses";
 
 const router: IRouter = Router();
 
@@ -20,5 +22,7 @@ router.use("/chits", chitsRouter);
 router.use("/wallet", walletRouter);
 router.use("/admin", adminRouter);
 router.use("/payment", paymentRouter);
+router.use("/whatsapp", whatsappRouter);
+router.use("/addresses", addressesRouter);
 
 export default router;

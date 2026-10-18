@@ -2,7 +2,7 @@ import * as React from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, ShoppingBag, Package, Truck, Users, Wallet,
-  Gift, LogOut, Menu, X, ListOrdered, Store,
+  Gift, LogOut, Menu, X, ListOrdered, Store, MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -17,6 +17,7 @@ const navItems = [
   { icon: Gift, label: "Chit Plans", href: "/chit-plans" },
   { icon: ShoppingBag, label: "Chit Subscriptions", href: "/chit-subscriptions" },
   { icon: Wallet, label: "Wallets", href: "/wallets" },
+  { icon: MessageCircle, label: "WhatsApp Promotions", href: "/promotions" },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -69,7 +70,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <p className="text-[10px] text-white/50">Administrator</p>
           </div>
         </div>
-        <button className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-white/60 hover:bg-white/6 hover:text-white transition-colors">
+        <button onClick={async () => { await fetch("/api/admin/auth/logout", { method: "POST" }); window.location.reload(); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-white/60 hover:bg-white/6 hover:text-white transition-colors">
           <LogOut className="h-4 w-4" />
           <span className="text-sm">Logout</span>
         </button>

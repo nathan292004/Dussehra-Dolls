@@ -19,8 +19,6 @@ import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { useAuth, getApiBase } from "@/context/auth";
 
-const DEADLINE = new Date(2026, 9, 1); // October 2026
-
 const PRESET_PLANS: { amount: number; icon: React.ComponentProps<typeof Ionicons>["name"] }[] = [
   { amount: 5000, icon: "business-outline" },
   { amount: 10000, icon: "card-outline" },
@@ -42,8 +40,7 @@ interface MyChitEnrollment {
   status: string;
 }
 
-// Match the API's supported duration range. The campaign cutoff is validated
-// separately; it must not collapse the slider to identical min/max values.
+// Match the API's supported duration range for rolling plans.
 const MAX_DURATION_MONTHS = 24;
 
 function formatAmount(n: number) {
@@ -134,7 +131,7 @@ export default function ChitsScreen() {
           currency: data.currency,
           keyId: data.keyId,
           name: "DollDime",
-          description: `EMI – ${data.planName}`,
+          description: `Doll plan installment - ${data.planName}`,
           enrollmentId: String(enrollment.id),
           type: "chit",
         },
@@ -173,7 +170,6 @@ export default function ChitsScreen() {
 
   const emi = selectedAmount ? selectedAmount / duration : 0;
   const planEndDate = getPlanEndDate(duration);
-  const isOverDeadline = planEndDate > DEADLINE;
   const endDateStr = planEndDate.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 
   if (isLoading) {
@@ -187,7 +183,7 @@ export default function ChitsScreen() {
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
       <View style={styles.header}>
-        <Text style={styles.title}>Chit Plans</Text>
+        <Text style={styles.title}>Doll Prepayment Plans</Text>
       </View>
 
       <View style={styles.tabs}>
@@ -201,7 +197,7 @@ export default function ChitsScreen() {
           style={[styles.tab, tab === "mine" && styles.tabActive]}
           onPress={() => { setTab("mine"); Haptics.selectionAsync(); }}
         >
-          <Text style={[styles.tabText, tab === "mine" && styles.tabTextActive]}>My Chits</Text>
+          <Text style={[styles.tabText, tab === "mine" && styles.tabTextActive]}>My Plans</Text>
           {myChits.length > 0 && (
             <View style={styles.badge}><Text style={styles.badgeText}>{myChits.length}</Text></View>
           )}
@@ -214,20 +210,19 @@ export default function ChitsScreen() {
             <View style={styles.infoBox}>
               <View style={styles.infoTitle}>
                 <Ionicons name="information-circle-outline" size={16} color={Colors.light.tint} />
-                <Text style={styles.infoTitleText}>How Chit Plans Work</Text>
+                <Text style={styles.infoTitleText}>How Doll Plans Work</Text>
               </View>
               {[
                 "Choose a plan amount and duration",
-                "Pay monthly installments (EMI)",
-                "Each payment adds to your wallet",
-                "Complete all payments to get a discount reward",
-                "You can pay more than EMI to finish early",
+                "Pay each scheduled installment securely",
+                "Each verified payment adds to your store balance",
+                "Use that balance to buy dolls from DollDime",
               ].map((line, i) => (
                 <Text key={i} style={styles.infoLine}>• {line}</Text>
               ))}
             </View>
 
-            <Text style={styles.sectionLabel}>Select Chit Plan</Text>
+            <Text style={styles.sectionLabel}>Select a Doll Plan</Text>
 
             {PRESET_PLANS.map(({ amount, icon }) => (
               <Pressable key={amount} style={styles.planRow} onPress={() => openDurationModal(amount)}>
@@ -248,7 +243,7 @@ export default function ChitsScreen() {
               </View>
               <View style={styles.planRowText}>
                 <Text style={styles.customPlanAmount}>Custom Amount</Text>
-                <Text style={styles.planRowSub}>Set your own savings goal</Text>
+                <Text style={styles.planRowSub}>Set your own doll prepayment goal</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={Colors.light.borderStrong} />
             </Pressable>
@@ -257,7 +252,7 @@ export default function ChitsScreen() {
           !user ? (
             <View style={styles.empty}>
               <Ionicons name="lock-closed-outline" size={64} color={Colors.light.borderStrong} />
-              <Text style={styles.emptyText}>Sign in to see your chits</Text>
+              <Text style={styles.emptyText}>Sign in to see your plans</Text>
               <Pressable style={styles.actionBtn} onPress={() => router.push("/auth")}>
                 <Text style={styles.actionBtnText}>Sign In</Text>
               </Pressable>
@@ -265,8 +260,8 @@ export default function ChitsScreen() {
           ) : myChits.length === 0 ? (
             <View style={styles.empty}>
               <Ionicons name="wallet-outline" size={64} color={Colors.light.borderStrong} />
-              <Text style={styles.emptyText}>No active chits</Text>
-              <Text style={styles.emptySubtext}>Start saving with a chit plan</Text>
+              <Text style={styles.emptyText}>No active plans</Text>
+              <Text style={styles.emptySubtext}>Start a doll prepayment plan</Text>
               <Pressable style={styles.actionBtn} onPress={() => setTab("browse")}>
                 <Text style={styles.actionBtnText}>Browse Plans</Text>
               </Pressable>
@@ -310,7 +305,7 @@ export default function ChitsScreen() {
                     <Text style={styles.myStatValue}>{formatAmount(e.chitPlan.totalAmount)}</Text>
                   </View>
                   <View style={styles.myStatItem}>
-                    <Text style={styles.myStatLabel}>Monthly EMI</Text>
+                    <Text style={styles.myStatLabel}>Installment</Text>
                     <Text style={styles.myStatValue}>{formatAmount(Math.round(e.chitPlan.monthlyContribution))}</Text>
                   </View>
                   <View style={styles.myStatItem}>
@@ -348,7 +343,7 @@ export default function ChitsScreen() {
                   <Pressable style={[styles.payEmiBtn, isOverdue && styles.payEmiBtnOverdue]} onPress={() => handlePayEmi(e)}>
                     <Ionicons name={isOverdue ? "alert-circle" : "lock-closed"} size={16} color="#fff" />
                     <Text style={styles.payEmiBtnText}>
-                      {isOverdue ? "Pay Overdue EMI – " : "Pay EMI – "}{formatAmount(Math.round(e.chitPlan.monthlyContribution))}
+                      {isOverdue ? "Pay Overdue Installment - " : "Pay Installment - "}{formatAmount(Math.min(e.chitPlan.monthlyContribution, e.chitPlan.totalAmount - e.amountPaid))}
                     </Text>
                   </Pressable>
                 )}
@@ -418,22 +413,14 @@ export default function ChitsScreen() {
             <View style={styles.emiBox}>
               <View style={styles.emiTitleRow}>
                 <Ionicons name="information-circle-outline" size={15} color={Colors.light.tint} />
-                <Text style={styles.emiTitle}>Monthly EMI</Text>
+                <Text style={styles.emiTitle}>Monthly installment</Text>
               </View>
               <Text style={styles.emiAmount}>{formatAmount(Math.round(emi))}</Text>
             </View>
 
-            <View style={[styles.deadlineBox, isOverDeadline && styles.deadlineBoxError]}>
-              <Ionicons
-                name={isOverDeadline ? "alert-circle-outline" : "warning-outline"}
-                size={15}
-                color={isOverDeadline ? Colors.light.error : "#b45309"}
-              />
-              <Text style={[styles.deadlineText, isOverDeadline && styles.deadlineTextError]}>
-                {isOverDeadline
-                  ? `Plan ends ${endDateStr}, which is after October 2026`
-                  : `Plan must end before October 2026`}
-              </Text>
+            <View style={styles.deadlineBox}>
+              <Ionicons name="calendar-outline" size={15} color="#b45309" />
+              <Text style={styles.deadlineText}>Estimated plan end: {endDateStr}</Text>
             </View>
 
             {enrollError ? <Text style={styles.errorNote}>{enrollError}</Text> : null}
@@ -443,9 +430,9 @@ export default function ChitsScreen() {
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </Pressable>
               <Pressable
-                style={[styles.modalConfirmBtn, (enrolling || isOverDeadline) && { opacity: 0.6 }]}
+                style={[styles.modalConfirmBtn, enrolling && { opacity: 0.6 }]}
                 onPress={handleEnroll}
-                disabled={enrolling || isOverDeadline}
+                disabled={enrolling}
               >
                 {enrolling ? (
                   <ActivityIndicator size="small" color={Colors.light.tint} />

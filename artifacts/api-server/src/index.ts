@@ -1,5 +1,6 @@
 import app from "./app";
 import { pool } from "@workspace/db";
+import { startWhatsAppWorker } from "./lib/whatsapp-worker";
 import { startChitReminderScheduler } from "./lib/chit-reminder-scheduler";
 
 const rawPort = process.env["PORT"];
@@ -43,6 +44,7 @@ async function start() {
   const server = app.listen(port, () => {
     console.log(`Server listening on port ${port}`);
     startChitReminderScheduler();
+    startWhatsAppWorker();
   });
 
   // ─── Graceful shutdown ──────────────────────────────

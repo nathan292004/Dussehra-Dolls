@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { ordersTable, cartItemsTable, productsTable, walletsTable, transactionsTable } from "@workspace/db/schema";
+import { ordersTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { authMiddleware, AuthRequest } from "../middlewares/auth";
 
@@ -29,52 +29,6 @@ router.get("/:id", async (req: AuthRequest, res) => {
   }
 });
 
-router.post("/", async (req: AuthRequest, res) => {
-  try {
-    const { address, paymentMethod } = req.body;
-    const cartItems = await db
-      .select({ cartItem: cartItemsTable, product: productsTable })
-      .from(cartItemsTable)
-      .leftJoin(productsTable, eq(cartItemsTable.productId, productsTable.id))
-      .where(eq(cartItemsTable.userId, req.userId!));
-
-    if (cartItems.length === 0) {
-      return res.status(400).json({ error: "Cart is empty" });
-    }
-
-    const orderItems = cartItems.filter(i => i.product).map(i => ({
-      productId: i.cartItem.productId,
-      productName: i.product!.name,
-      quantity: i.cartItem.quantity,
-      price: parseFloat(i.product!.price),
-      subtotal: parseFloat(i.product!.price) * i.cartItem.quantity,
-    }));
-
-    const total = orderItems.reduce((sum, i) => sum + i.subtotal, 0);
-
-    const [order] = await db.insert(ordersTable).values({
-      userId: req.userId!,
-      items: orderItems,
-      total: total.toFixed(2),
-      address,
-      paymentMethod,
-      status: "confirmed",
-    }).returning();
-
-    await db.delete(cartItemsTable).where(eq(cartItemsTable.userId, req.userId!));
-
-    await db.insert(transactionsTable).values({
-      userId: req.userId!,
-      type: "debit",
-      amount: total.toFixed(2),
-      description: `Order #${order.id}`,
-    });
-
-    return res.status(201).json({ ...order, total: parseFloat(order.total) });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
+router.post("/", (_req, res) => res.status(410).json({ error: "Use a verified checkout method" }));
 
 export default router;

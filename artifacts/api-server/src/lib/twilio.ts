@@ -5,6 +5,10 @@ export class SmsDeliveryError extends Error {
 }
 
 async function callTwilio(to: string, from: string, body: string) {
+  return callTwilioParams({ To: to, From: from, Body: body });
+}
+
+async function callTwilioParams(params: Record<string, string>) {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   const apiKeySid = process.env.TWILIO_API_KEY_SID;
@@ -12,8 +16,8 @@ async function callTwilio(to: string, from: string, body: string) {
   const username = apiKeySid || accountSid;
   const password = apiKeySid ? apiKeySecret : authToken;
 
-  if (!accountSid?.startsWith("AC") || !username || !password || !from) {
-    throw new SmsDeliveryError("SMS_NOT_CONFIGURED", "SMS verification is not configured. Check the Twilio account credentials and restart the local launcher.");
+  if (!accountSid?.startsWith("AC") || !username || !password || !params.From) {
+    throw new SmsDeliveryError("TWILIO_NOT_CONFIGURED", "Twilio credentials or sender are missing.");
   }
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
@@ -25,7 +29,7 @@ async function callTwilio(to: string, from: string, body: string) {
       Authorization: `Basic ${basicAuth}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
+    body: new URLSearchParams(params).toString(),
     signal: AbortSignal.timeout(15000),
   });
 
@@ -76,29 +80,4 @@ export async function sendSms(to: string, body: string) {
   const result = await callTwilio(to, from, body);
   console.log("[Twilio] SMS sent, SID:", result.sid);
   return result;
-}
-
-export async function sendWhatsApp(to: string, body: string) {
-  const rawFrom = process.env.TWILIO_WHATSAPP_FROM || "+14155238886";
-  const from = "whatsapp:" + rawFrom.replace(/^whatsapp:/, "");
-
-  // If a test number is configured, redirect ALL WhatsApp messages to it
-  const testOverride = process.env.WHATSAPP_TEST_NUMBER;
-  const actualTo = testOverride ? testOverride : to;
-  const toWa = "whatsapp:" + actualTo.replace(/^whatsapp:/, "");
-
-  if (testOverride) {
-    console.log(`[Twilio] WhatsApp TEST MODE — redirecting ${to} → ${toWa}`);
-  } else {
-    console.log(`[Twilio] Sending WhatsApp to ${toWa}`);
-  }
-
-  try {
-    const result = await callTwilio(toWa, from, body);
-    console.log("[Twilio] WhatsApp sent, SID:", result.sid);
-    return result;
-  } catch (err) {
-    console.error("[Twilio] WhatsApp send failed (non-fatal):", err);
-    return null;
-  }
 }

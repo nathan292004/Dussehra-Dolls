@@ -4,16 +4,10 @@ import { usersTable, walletsTable, otpVerificationsTable } from "@workspace/db/s
 import { eq, and, gt, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { sendSms, SmsDeliveryError } from "../lib/twilio";
+import { hashPassword, verifyPassword, generateToken } from "../lib/customer-credentials";
+import { authMiddleware, type AuthRequest } from "../middlewares/auth";
 
 const router = Router();
-
-function hashPassword(password: string): string {
-  return crypto.createHash("sha256").update(password).digest("hex");
-}
-
-function generateToken(userId: number): string {
-  return Buffer.from(`${userId}:${Date.now()}:${Math.random()}`).toString("base64url");
-}
 
 function generateOtp(): string {
   return crypto.randomInt(100000, 1000000).toString();
@@ -58,6 +52,11 @@ router.post("/send-otp", async (req, res) => {
     const expiresAt = new Date(Date.now() + 10 * 60_000);
 
     const [verification] = await db.insert(otpVerificationsTable).values({ phone: normalized, otp, expiresAt }).returning();
+
+    // For local development only: let developers exercise the complete OTP flow without a paid SMS account.
+    if (process.env.NODE_ENV === "development" && process.env.DEV_OTP_MODE === "true") {
+      return res.json({ success: true, message: "Local development code generated", developmentOtp: otp });
+    }
 
     try {
       await sendSms(normalized, `Your DollDime verification code is: ${otp}. Valid for 10 minutes.`);
@@ -185,8 +184,13 @@ router.post("/login", async (req, res) => {
       .where(eq(usersTable.phone, normalized))
       .limit(1);
 
-    if (!user || user.passwordHash !== hashPassword(password)) {
+    const passwordCheck = user ? verifyPassword(password, user.passwordHash) : { valid: false, legacy: false };
+    if (!user || !user.isActive || !passwordCheck.valid) {
       return res.status(401).json({ error: "Invalid phone number or password" });
+    }
+
+    if (passwordCheck.legacy) {
+      await db.update(usersTable).set({ passwordHash: hashPassword(password) }).where(eq(usersTable.id, user.id));
     }
 
     const token = generateToken(user.id);
@@ -200,17 +204,9 @@ router.post("/login", async (req, res) => {
   }
 });
 
-router.get("/me", async (req, res) => {
+router.get("/me", authMiddleware as any, async (req: AuthRequest, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-    const token = authHeader.slice(7);
-    const decoded = Buffer.from(token, "base64url").toString();
-    const userId = parseInt(decoded.split(":")[0]);
-    if (isNaN(userId)) return res.status(401).json({ error: "Invalid token" });
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
     if (!user) return res.status(404).json({ error: "User not found" });
     return res.json({ id: user.id, name: user.name, email: user.email, phone: user.phone });
   } catch (err) {

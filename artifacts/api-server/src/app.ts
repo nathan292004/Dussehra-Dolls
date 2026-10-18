@@ -2,10 +2,13 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import cookieParser from "cookie-parser";
 import { requestLogger } from "./middlewares/request-logger";
 import router from "./routes";
 import path from "path";
 import { fileURLToPath } from "url";
+import { paymentWebhook } from "./routes/payment-webhook";
+import { verifyMetaWhatsAppWebhook, receiveMetaWhatsAppWebhook } from "./routes/meta-whatsapp-webhook";
 
 const app: Express = express();
 
@@ -31,6 +34,7 @@ const allowedHostPatterns = [
 
 function isAllowedOrigin(origin: string): boolean {
   if ((process.env.CORS_ALLOWED_ORIGINS || "").split(",").map(value => value.trim()).includes(origin)) return true;
+  if (process.env.NODE_ENV === "production") return false;
   try {
     const { hostname } = new URL(origin);
     return allowedHostPatterns.some((p) => p.test(hostname));
@@ -59,7 +63,8 @@ const globalLimiter = rateLimit({
   message: { error: "Too many requests, please try again later." },
   validate: { xForwardedForHeader: false },
 });
-app.use(globalLimiter);
+// A campaign can generate multiple signed delivery callbacks per message.
+app.use((req, res, next) => req.path === "/api/whatsapp/webhook" ? next() : globalLimiter(req, res, next));
 
 // ─── Strict rate limiter for auth (10 req/min per IP) ───────
 const authLimiter = rateLimit({
@@ -71,10 +76,17 @@ const authLimiter = rateLimit({
   validate: { xForwardedForHeader: false },
 });
 app.use("/api/auth", authLimiter);
+app.use("/api/admin/auth/login", authLimiter);
+
+// Razorpay signs raw bytes; this route must precede JSON body parsing.
+app.post("/api/payment/webhook", express.raw({ type: "application/json", limit: "256kb" }), paymentWebhook);
+app.get("/api/whatsapp/webhook", verifyMetaWhatsAppWebhook);
+app.post("/api/whatsapp/webhook", express.raw({ type: "application/json", limit: "256kb" }), receiveMetaWhatsAppWebhook);
 
 // ─── Body parsers ───────────────────────────────────────────
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+app.use(cookieParser());
 
 // ─── Structured logging ────────────────────────────────────
 app.use(requestLogger);

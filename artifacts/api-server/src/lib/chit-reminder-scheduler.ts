@@ -44,12 +44,11 @@ async function sendChitReminders() {
 
       try {
         await notifyChitDueReminder({
-          phone: row.user.phone,
-          name: row.user.name || "Customer",
+          userId: row.user.id,
+          enrollmentId: row.enrollment.id,
           planName: row.plan.name,
           emiAmount: parseFloat(row.plan.monthlyContribution),
           dueDate,
-          daysLeft,
         });
         sent++;
       } catch (e) {

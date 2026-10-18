@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
+import { verifyToken } from "../lib/customer-credentials";
 
 export interface AuthRequest extends Request {
   userId?: number;
@@ -13,12 +14,10 @@ export async function authMiddleware(req: AuthRequest, res: Response, next: Next
     if (!authHeader?.startsWith("Bearer ")) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    const token = authHeader.slice(7);
-    const decoded = Buffer.from(token, "base64url").toString();
-    const userId = parseInt(decoded.split(":")[0]);
-    if (isNaN(userId)) return res.status(401).json({ error: "Invalid token" });
+    const userId = verifyToken(authHeader.slice(7));
+    if (userId === null) return res.status(401).json({ error: "Invalid token" });
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
-    if (!user) return res.status(401).json({ error: "User not found" });
+    if (!user || !user.isActive) return res.status(401).json({ error: "User not found" });
     req.userId = userId;
     return next();
   } catch {

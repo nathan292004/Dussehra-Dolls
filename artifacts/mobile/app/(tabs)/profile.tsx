@@ -95,13 +95,13 @@ export default function ProfileScreen() {
       icon: "location-outline",
       label: "Addresses",
       subtitle: "Manage delivery addresses",
-      onPress: () => {},
+      onPress: () => router.push("/addresses"),
     },
     {
       icon: "notifications-outline",
       label: "Notifications",
-      subtitle: "Manage alerts and updates",
-      onPress: () => {},
+      subtitle: "Choose WhatsApp updates and offers",
+      onPress: () => router.push("/notifications" as any),
     },
     {
       icon: "help-circle-outline",

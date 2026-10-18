@@ -4,17 +4,13 @@ import {
   productsTable, ordersTable, usersTable, walletsTable,
   chitPlansTable, chitEnrollmentsTable, vendorsTable,
 } from "@workspace/db/schema";
-import { eq, lt, count, sum, desc, sql } from "drizzle-orm";
-import {
-  notifyOrderConfirmed,
-  notifyChitEmiPaid,
-  notifyWalletTopUp,
-  notifyChitDueReminder,
-} from "../lib/whatsapp-notifications";
+import { eq, lt, count, sum, desc, sql, and } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
+import whatsappAdminRouter from "./admin-whatsapp";
+import { adminAuth, adminLogin, adminLogout, adminMe } from "../middlewares/admin-auth";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadsDir = path.join(__dirname, "..", "..", "uploads");
@@ -41,6 +37,12 @@ const upload = multer({
 });
 
 const router = Router();
+
+router.post("/auth/login", adminLogin);
+router.get("/auth/me", adminMe);
+router.post("/auth/logout", adminLogout);
+router.use(adminAuth);
+router.use("/whatsapp", whatsappAdminRouter);
 
 // ─── Image Upload ─────────────────────────────────────────────────────────────
 router.post("/upload", upload.single("image"), (req, res) => {
@@ -77,7 +79,7 @@ const formatOrder = (o: typeof ordersTable.$inferSelect & { customerName?: strin
 router.get("/stats", async (_req, res) => {
   try {
     const [totalOrdersRow] = await db.select({ value: count() }).from(ordersTable);
-    const [revenueRow] = await db.select({ value: sum(ordersTable.total) }).from(ordersTable);
+    const [revenueRow] = await db.select({ value: sum(ordersTable.total) }).from(ordersTable).where(eq(ordersTable.paymentStatus, "paid"));
     const [productCountRow] = await db.select({ value: count() }).from(productsTable);
     const [userCountRow] = await db.select({ value: count() }).from(usersTable);
     const [walletCountRow] = await db.select({ value: count() }).from(walletsTable);
@@ -92,6 +94,8 @@ router.get("/stats", async (_req, res) => {
         paymentStatus: ordersTable.paymentStatus,
         paymentMethod: ordersTable.paymentMethod,
         address: ordersTable.address,
+        addressLatitude: ordersTable.addressLatitude,
+        addressLongitude: ordersTable.addressLongitude,
         items: ordersTable.items,
         createdAt: ordersTable.createdAt,
         customerName: usersTable.name,
@@ -281,6 +285,8 @@ router.get("/orders", async (_req, res) => {
         paymentStatus: ordersTable.paymentStatus,
         paymentMethod: ordersTable.paymentMethod,
         address: ordersTable.address,
+        addressLatitude: ordersTable.addressLatitude,
+        addressLongitude: ordersTable.addressLongitude,
         items: ordersTable.items,
         createdAt: ordersTable.createdAt,
         customerName: usersTable.name,
@@ -307,16 +313,18 @@ router.put("/orders/:id/status", async (req, res) => {
     const id = parseInt(req.params.id);
     const { status, paymentStatus } = req.body;
     const validStatuses = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"];
-    const validPaymentStatuses = ["pending", "paid", "failed"];
+    if (paymentStatus !== undefined) return res.status(400).json({ error: "Payment status is controlled by verified payments" });
+    const [current] = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
+    if (!current) return res.status(404).json({ error: "Order not found" });
+    if (status && current.paymentStatus !== "paid" && !["pending", "cancelled"].includes(status))
+      return res.status(409).json({ error: "The order must be paid before fulfillment" });
+    if (status === "cancelled" && current.paymentStatus === "paid")
+      return res.status(409).json({ error: "Paid orders require a refund workflow before cancellation" });
 
     const updateData: Partial<typeof ordersTable.$inferInsert> = {};
     if (status !== undefined) {
       if (!validStatuses.includes(status)) return res.status(400).json({ error: `Invalid status` });
       updateData.status = status;
-    }
-    if (paymentStatus !== undefined) {
-      if (!validPaymentStatuses.includes(paymentStatus)) return res.status(400).json({ error: `Invalid paymentStatus` });
-      updateData.paymentStatus = paymentStatus;
     }
 
     const [updated] = await db.update(ordersTable).set(updateData).where(eq(ordersTable.id, id)).returning();
@@ -487,69 +495,6 @@ router.get("/chit-subscriptions", async (_req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// ── WhatsApp test endpoint ───────────────────────────────────────────────────
-// POST /api/admin/test-whatsapp?type=order|chit|wallet|reminder
-// Sends a sample WhatsApp notification to WHATSAPP_TEST_NUMBER
-router.post("/test-whatsapp", async (req, res) => {
-  const testNumber = process.env.WHATSAPP_TEST_NUMBER;
-  if (!testNumber) {
-    return res.status(400).json({ error: "WHATSAPP_TEST_NUMBER env var not set" });
-  }
-
-  const type = (req.query.type as string) || "order";
-
-  try {
-    let result: any;
-
-    if (type === "order") {
-      result = await notifyOrderConfirmed({
-        phone: testNumber,
-        name: "Test Customer",
-        orderId: 1001,
-        total: 2499,
-        items: [
-          { productName: "Navratri Special Doll Set", quantity: 2, price: 999 },
-          { productName: "Dussehra Festive Doll", quantity: 1, price: 501 },
-        ],
-      });
-    } else if (type === "chit") {
-      result = await notifyChitEmiPaid({
-        phone: testNumber,
-        name: "Test Customer",
-        planName: "Gold Savings – ₹2,000/mo",
-        emiAmount: 2000,
-        totalPaid: 6000,
-        totalAmount: 24000,
-        isCompleted: false,
-        nextPaymentDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      });
-    } else if (type === "wallet") {
-      result = await notifyWalletTopUp({
-        phone: testNumber,
-        name: "Test Customer",
-        credited: 1000,
-        newBalance: 3500,
-      });
-    } else if (type === "reminder") {
-      result = await notifyChitDueReminder({
-        phone: testNumber,
-        name: "Test Customer",
-        planName: "Gold Savings – ₹2,000/mo",
-        emiAmount: 2000,
-        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        daysLeft: 1,
-      });
-    } else {
-      return res.status(400).json({ error: "type must be: order | chit | wallet | reminder" });
-    }
-
-    return res.json({ success: true, type, to: testNumber, sid: (result as any)?.sid });
-  } catch (err: any) {
-    console.error("[WhatsApp test] Error:", err);
-    return res.status(500).json({ error: err.message || "Failed to send test message" });
   }
 });
 

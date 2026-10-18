@@ -39,7 +39,7 @@ export default function PaymentResultScreen() {
             ? isWallet
               ? "Money Added!"
               : isChit
-              ? isCompleted ? "Chit Plan Complete!" : "EMI Paid!"
+              ? isCompleted ? "Doll Plan Complete!" : "Installment Paid!"
               : "Order Placed!"
             : "Payment Failed"}
         </Text>
@@ -50,8 +50,8 @@ export default function PaymentResultScreen() {
               ? "Your wallet has been topped up successfully."
               : isChit
               ? isCompleted
-                ? "Congratulations! You've completed your chit plan."
-                : "Your EMI has been recorded. Keep it up!"
+                ? "Your final payment has been added to your store balance."
+                : "Your payment has been added to your store balance."
               : "Your order has been confirmed and will be delivered soon."
             : params.message || "Something went wrong. Please try again."}
         </Text>
@@ -69,7 +69,7 @@ export default function PaymentResultScreen() {
           )}
           {isSuccess && isChit && (
             <Pressable style={styles.primaryBtn} onPress={() => router.push("/(tabs)/chits")}>
-              <Text style={styles.primaryBtnText}>My Chit Plans</Text>
+              <Text style={styles.primaryBtnText}>My Doll Plans</Text>
             </Pressable>
           )}
           {!isSuccess && (
