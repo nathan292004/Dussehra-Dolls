@@ -15,18 +15,20 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
-import { useAuth } from "@/context/auth";
+import { useAuth, ApiError } from "@/context/auth";
 
-type Mode = "login" | "register";
+type Mode = "login" | "register" | "forgot";
+type ForgotStep = "phone" | "reset";
 type RegisterStep = "details" | "otp";
 
 export default function AuthScreen() {
   const insets = useSafeAreaInsets();
-  const { login, register, sendOtp } = useAuth();
+  const { login, register, sendOtp, resetPassword } = useAuth();
   const [mode, setMode] = useState<Mode>("login");
   const [registerStep, setRegisterStep] = useState<RegisterStep>("details");
 
-  const [name, setName] = useState("");
+  const [fname, setFname] = useState("");
+  const [lname, setLname] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -37,6 +39,8 @@ export default function AuthScreen() {
   const [error, setError] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const [alreadyRegistered, setAlreadyRegistered] = useState(false);
+  const [forgotStep, setForgotStep] = useState<ForgotStep>("phone");
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
@@ -53,17 +57,19 @@ export default function AuthScreen() {
   const handleSendOtp = async () => {
     setError("");
     if (!phone) { setError("Please enter your phone number"); return; }
-    if (!name) { setError("Please enter your name"); return; }
+    if (!fname.trim()) { setError("Please enter your first name"); return; }
     if (!password || password.length < 6) { setError("Password must be at least 6 characters"); return; }
 
+    setAlreadyRegistered(false);
     setIsLoading(true);
     try {
-      await sendOtp(phone);
+      await sendOtp(phone, "register");
       setOtpSent(true);
       setRegisterStep("otp");
       startCountdown();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
+      setAlreadyRegistered(err instanceof ApiError && err.code === "PHONE_ALREADY_REGISTERED");
       setError(err.message || "Failed to send OTP");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
@@ -76,7 +82,7 @@ export default function AuthScreen() {
     setError("");
     setIsLoading(true);
     try {
-      await sendOtp(phone);
+      await sendOtp(phone, mode === "forgot" ? "reset" : "register");
       setOtp(["", "", "", "", "", ""]);
       startCountdown();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -118,7 +124,7 @@ export default function AuthScreen() {
 
     setIsLoading(true);
     try {
-      await register(name, phone, password, otpCode);
+      await register(fname.trim(), lname.trim(), phone, password, otpCode);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (err: any) {
@@ -145,14 +151,160 @@ export default function AuthScreen() {
     }
   };
 
+  const handleForgotSendOtp = async () => {
+    setError("");
+    if (!phone) { setError("Please enter your registered phone number"); return; }
+    setIsLoading(true);
+    try {
+      await sendOtp(phone, "reset");
+      setOtp(["", "", "", "", "", ""]);
+      setForgotStep("reset");
+      startCountdown();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err: any) {
+      setError(err.message || "Failed to send OTP");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    setError("");
+    const otpCode = otp.join("");
+    if (otpCode.length !== 6) { setError("Please enter the 6-digit OTP"); return; }
+    if (!password || password.length < 6) { setError("New password must be at least 6 characters"); return; }
+    setIsLoading(true);
+    try {
+      await resetPassword(phone, otpCode, password);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.back();
+    } catch (err: any) {
+      setError(err.message || "Could not reset password");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const switchMode = (newMode: Mode) => {
     setMode(newMode);
+    setForgotStep("phone");
+    setAlreadyRegistered(false);
+    setPassword("");
     setRegisterStep("details");
     setError("");
     setOtp(["", "", "", "", "", ""]);
     setOtpSent(false);
     setCountdown(0);
   };
+
+  const otpBoxes = (
+    <View style={styles.otpRow}>
+      {otp.map((digit, idx) => (
+        <TextInput
+          key={idx}
+          ref={(r) => { otpRefs.current[idx] = r; }}
+          style={[styles.otpBox, digit ? styles.otpBoxFilled : null]}
+          value={digit}
+          onChangeText={(v) => handleOtpChange(v, idx)}
+          onKeyPress={({ nativeEvent }) => handleOtpKeyPress(nativeEvent.key, idx)}
+          keyboardType="number-pad"
+          maxLength={6}
+          selectTextOnFocus
+          textAlign="center"
+        />
+      ))}
+    </View>
+  );
+
+  const resendRow = (
+    <View style={styles.resendRow}>
+      {countdown > 0 ? (
+        <Text style={styles.resendCountdown}>Resend OTP in {countdown}s</Text>
+      ) : (
+        <Pressable onPress={handleResendOtp} disabled={isLoading}>
+          <Text style={styles.resendLink}>Resend OTP</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+
+  const forgotForm = forgotStep === "phone" ? (
+    <View style={styles.form}>
+      <View style={styles.otpHeader}>
+        <View style={styles.otpIconCircle}>
+          <Ionicons name="key-outline" size={30} color={Colors.light.tint} />
+        </View>
+        <Text style={styles.otpTitle}>Forgot Password?</Text>
+        <Text style={styles.otpSubtitle}>
+          Enter the phone number you registered with.{"\n"}We will send you a 6-digit code.
+        </Text>
+      </View>
+      <View style={styles.inputGroup}>
+        <Text style={styles.label}>Phone Number</Text>
+        <View style={styles.inputContainer}>
+          <Ionicons name="call-outline" size={18} color={Colors.light.textMuted} />
+          <TextInput
+            style={styles.input}
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="+91 98765 43210"
+            placeholderTextColor={Colors.light.textMuted}
+            keyboardType="phone-pad"
+          />
+        </View>
+      </View>
+      {error ? <ErrorBox message={error} /> : null}
+      <Pressable style={[styles.submitBtn, isLoading && styles.submitBtnDisabled]} onPress={handleForgotSendOtp} disabled={isLoading}>
+        {isLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.submitBtnText}>Send OTP</Text>}
+      </Pressable>
+      <Text style={styles.switchText}>
+        Remembered it?{" "}
+        <Text style={styles.switchLink} onPress={() => switchMode("login")}>Sign In</Text>
+      </Text>
+    </View>
+  ) : (
+    <View style={styles.form}>
+      <View style={styles.otpHeader}>
+        <View style={styles.otpIconCircle}>
+          <Ionicons name="shield-checkmark-outline" size={32} color={Colors.light.tint} />
+        </View>
+        <Text style={styles.otpTitle}>Reset Password</Text>
+        <Text style={styles.otpSubtitle}>
+          Enter the code we sent to{"\n"}
+          <Text style={{ color: Colors.light.tint }}>{phone}</Text>
+        </Text>
+      </View>
+      {otpBoxes}
+      {resendRow}
+      <View style={styles.inputGroup}>
+        <Text style={styles.label}>New Password</Text>
+        <View style={styles.inputContainer}>
+          <Ionicons name="lock-closed-outline" size={18} color={Colors.light.textMuted} />
+          <TextInput
+            style={[styles.input, { flex: 1 }]}
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Min. 6 characters"
+            placeholderTextColor={Colors.light.textMuted}
+            secureTextEntry={!showPassword}
+            autoCapitalize="none"
+          />
+          <Pressable onPress={() => setShowPassword(!showPassword)}>
+            <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={18} color={Colors.light.textMuted} />
+          </Pressable>
+        </View>
+      </View>
+      {error ? <ErrorBox message={error} /> : null}
+      <Pressable style={[styles.submitBtn, isLoading && styles.submitBtnDisabled]} onPress={handleResetPassword} disabled={isLoading}>
+        {isLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.submitBtnText}>Reset Password & Sign In</Text>}
+      </Pressable>
+      <Pressable onPress={() => { setForgotStep("phone"); setError(""); setOtp(["","","","","",""]); }}>
+        <Text style={[styles.switchText, { textAlign: "center" }]}>Change phone number</Text>
+      </Pressable>
+    </View>
+  );
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
@@ -188,7 +340,7 @@ export default function AuthScreen() {
           </Pressable>
         </View>
 
-        {mode === "login" ? (
+        {mode === "forgot" ? forgotForm : mode === "login" ? (
           <View style={styles.form}>
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Phone Number</Text>
@@ -225,6 +377,10 @@ export default function AuthScreen() {
               </View>
             </View>
 
+            <Text style={[styles.switchLink, { textAlign: "right" }]} onPress={() => switchMode("forgot")}>
+              Forgot password?
+            </Text>
+
             {error ? <ErrorBox message={error} /> : null}
 
             <Pressable style={[styles.submitBtn, isLoading && styles.submitBtnDisabled]} onPress={handleLogin} disabled={isLoading}>
@@ -239,14 +395,29 @@ export default function AuthScreen() {
         ) : registerStep === "details" ? (
           <View style={styles.form}>
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Full Name</Text>
+              <Text style={styles.label}>First Name</Text>
               <View style={styles.inputContainer}>
                 <Ionicons name="person-outline" size={18} color={Colors.light.textMuted} />
                 <TextInput
                   style={styles.input}
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="Your full name"
+                  value={fname}
+                  onChangeText={setFname}
+                  placeholder="First name"
+                  placeholderTextColor={Colors.light.textMuted}
+                  autoCapitalize="words"
+                />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Last Name</Text>
+              <View style={styles.inputContainer}>
+                <Ionicons name="person-outline" size={18} color={Colors.light.textMuted} />
+                <TextInput
+                  style={styles.input}
+                  value={lname}
+                  onChangeText={setLname}
+                  placeholder="Last name"
                   placeholderTextColor={Colors.light.textMuted}
                   autoCapitalize="words"
                 />
@@ -289,6 +460,13 @@ export default function AuthScreen() {
 
             {error ? <ErrorBox message={error} /> : null}
 
+            {alreadyRegistered ? (
+              <View style={{ flexDirection: "row", justifyContent: "center", gap: 20 }}>
+                <Text style={styles.switchLink} onPress={() => { const p = phone; switchMode("login"); setPhone(p); }}>Sign In</Text>
+                <Text style={styles.switchLink} onPress={() => { const p = phone; switchMode("forgot"); setPhone(p); }}>Forgot password?</Text>
+              </View>
+            ) : null}
+
             <Pressable style={[styles.submitBtn, isLoading && styles.submitBtnDisabled]} onPress={handleSendOtp} disabled={isLoading}>
               {isLoading ? (
                 <ActivityIndicator size="small" color="#fff" />
@@ -318,32 +496,9 @@ export default function AuthScreen() {
               </Text>
             </View>
 
-            <View style={styles.otpRow}>
-              {otp.map((digit, idx) => (
-                <TextInput
-                  key={idx}
-                  ref={(r) => { otpRefs.current[idx] = r; }}
-                  style={[styles.otpBox, digit ? styles.otpBoxFilled : null]}
-                  value={digit}
-                  onChangeText={(v) => handleOtpChange(v, idx)}
-                  onKeyPress={({ nativeEvent }) => handleOtpKeyPress(nativeEvent.key, idx)}
-                  keyboardType="number-pad"
-                  maxLength={6}
-                  selectTextOnFocus
-                  textAlign="center"
-                />
-              ))}
-            </View>
+            {otpBoxes}
 
-            <View style={styles.resendRow}>
-              {countdown > 0 ? (
-                <Text style={styles.resendCountdown}>Resend OTP in {countdown}s</Text>
-              ) : (
-                <Pressable onPress={handleResendOtp} disabled={isLoading}>
-                  <Text style={styles.resendLink}>Resend OTP</Text>
-                </Pressable>
-              )}
-            </View>
+            {resendRow}
 
             {error ? <ErrorBox message={error} /> : null}
 

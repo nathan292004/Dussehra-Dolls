@@ -8,6 +8,7 @@ type WalletEntry = {
   id: number;
   userId: number;
   balance: number;
+  chitLockedBalance?: number;
   updatedAt: string;
   userName?: string | null;
   userEmail?: string | null;
@@ -40,7 +41,7 @@ export function Wallets() {
             <thead>
               <tr className="bg-parchment">
                 <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">User</th>
-                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Email</th>
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Locked in chits</th>
                 <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Phone</th>
                 <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Balance</th>
                 <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Last Updated</th>
@@ -62,7 +63,7 @@ export function Wallets() {
                         {w.userName ?? `User #${w.userId}`}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-warm-secondary text-[13px]">{w.userEmail ?? "—"}</td>
+                    <td className="px-4 py-3 text-warm-secondary text-[13px]">{(w.chitLockedBalance ?? 0) > 0 ? formatCurrency(w.chitLockedBalance!) : "—"}</td>
                     <td className="px-4 py-3 text-warm-secondary text-[13px]">{w.userPhone ?? "—"}</td>
                     <td className="px-4 py-3">
                       <span className={`font-display ${w.balance > 0 ? "text-forest" : "text-warm-muted"}`} style={{ fontWeight: 600 }}>

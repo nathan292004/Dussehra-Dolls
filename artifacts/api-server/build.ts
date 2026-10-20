@@ -55,13 +55,23 @@ async function buildAll() {
   );
 
   await esbuild({
-    entryPoints: [path.resolve(__dirname, "src/index.ts")],
+    // The web server and the background worker are built together but run as separate processes.
+    entryPoints: {
+      index: path.resolve(__dirname, "src/index.ts"),
+      worker: path.resolve(__dirname, "src/worker.ts"),
+    },
     platform: "node",
     bundle: true,
     format: "cjs",
-    outfile: path.resolve(distDir, "index.cjs"),
+    outdir: distDir,
+    outExtension: { ".js": ".cjs" },
     define: {
       "process.env.NODE_ENV": '"production"',
+      // The code uses import.meta.url (to find folders); in this CommonJS bundle it is provided by the banner below.
+      "import.meta.url": "__importMetaUrl",
+    },
+    banner: {
+      js: 'const __importMetaUrl = require("url").pathToFileURL(__filename).href;',
     },
     minify: true,
     external: externals,

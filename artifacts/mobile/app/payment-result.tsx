@@ -8,11 +8,16 @@ import * as Haptics from "expo-haptics";
 
 export default function PaymentResultScreen() {
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ success: string; message?: string; type: string; isCompleted?: string }>();
+  const params = useLocalSearchParams<{
+    success: string; message?: string; type: string; isCompleted?: string;
+    partial?: string; outstanding?: string; received?: string;
+  }>();
   const isSuccess = params.success === "true";
   const isChit = params.type === "chit";
   const isWallet = params.type === "wallet";
   const isCompleted = params.isCompleted === "true";
+  const isPartial = params.partial === "true";
+  const inr = (v?: string) => "₹" + Number(v ?? 0).toLocaleString("en-IN");
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
   useEffect(() => {
@@ -39,7 +44,7 @@ export default function PaymentResultScreen() {
             ? isWallet
               ? "Money Added!"
               : isChit
-              ? isCompleted ? "Chit Plan Complete!" : "EMI Paid!"
+              ? isCompleted ? "Chit Plan Complete!" : isPartial ? "Payment Not Complete" : "Payment Received!"
               : "Order Placed!"
             : "Payment Failed"}
         </Text>
@@ -50,8 +55,10 @@ export default function PaymentResultScreen() {
               ? "Your wallet has been topped up successfully."
               : isChit
               ? isCompleted
-                ? "Congratulations! You've completed your chit plan."
-                : "Your EMI has been recorded. Keep it up!"
+                ? "Congratulations! Your savings and bonus points are now unlocked in your wallet."
+                : isPartial
+                ? `We received ${inr(params.received)}, which does not cover the full amount due. ${inr(params.outstanding)} is still pending. Please pay the remaining amount.`
+                : "Your chit payment has been recorded. Keep it up!"
               : "Your order has been confirmed and will be delivered soon."
             : params.message || "Something went wrong. Please try again."}
         </Text>
@@ -69,7 +76,7 @@ export default function PaymentResultScreen() {
           )}
           {isSuccess && isChit && (
             <Pressable style={styles.primaryBtn} onPress={() => router.push("/(tabs)/chits")}>
-              <Text style={styles.primaryBtnText}>My Chit Plans</Text>
+              <Text style={styles.primaryBtnText}>{isPartial ? "Pay Remaining Amount" : "My Chit Plans"}</Text>
             </Pressable>
           )}
           {!isSuccess && (

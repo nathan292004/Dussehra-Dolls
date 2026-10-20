@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,24 +9,57 @@ import {
   ActivityIndicator,
   Platform,
   KeyboardAvoidingView,
+  Switch,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { useAuth, getApiBase } from "@/context/auth";
 import { useCart } from "@/context/cart";
 
+// Mirrors the server: the wallet pays first, but the part left for the online payment must be at least ₹1.
+function walletShare(spendablePaise: number, totalPaise: number) {
+  let share = Math.min(Math.max(spendablePaise, 0), totalPaise);
+  const remainder = totalPaise - share;
+  if (remainder > 0 && remainder < 100 && totalPaise >= 100) share = totalPaise - 100;
+  return Math.max(0, share);
+}
+
+const inr = (paise: number) =>
+  "₹" + (paise / 100).toLocaleString("en-IN", { minimumFractionDigits: paise % 100 === 0 ? 0 : 2, maximumFractionDigits: 2 });
+
 export default function CheckoutScreen() {
   const insets = useSafeAreaInsets();
   const { token } = useAuth();
-  const { cart } = useCart();
+  const { cart, fetchCart } = useCart();
+  const [wallet, setWallet] = useState<{ balance: number; lockedBalance: number } | null>(null);
+  const [useWallet, setUseWallet] = useState(true);
   const [address, setAddress] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
+
+  const loadWallet = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${getApiBase()}/wallet`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setWallet({ balance: data.balance ?? 0, lockedBalance: data.lockedBalance ?? 0 });
+      }
+    } catch { /* checkout still works without the wallet */ }
+  }, [token]);
+
+  useFocusEffect(useCallback(() => { void loadWallet(); }, [loadWallet]));
+
+  const totalPaise = Math.round(cart.total * 100);
+  const spendablePaise = Math.round((wallet?.balance ?? 0) * 100);
+  const lockedPaise = Math.round((wallet?.lockedBalance ?? 0) * 100);
+  const walletPaise = useWallet ? walletShare(spendablePaise, totalPaise) : 0;
+  const onlinePaise = totalPaise - walletPaise;
 
   const proceedToPayment = async () => {
     if (!address.trim()) { setError("Please enter delivery address"); return; }
@@ -36,14 +69,24 @@ export default function CheckoutScreen() {
       const res = await fetch(`${getApiBase()}/payment/create-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ address }),
+        body: JSON.stringify({ address, useWallet: walletPaise > 0 }),
       });
       if (!res.ok) {
         const err = await res.json();
         setError(err.error || "Failed to create order");
+        void loadWallet();
+        // Something ran out of stock (or changed): refresh the cart so it shows what can still be bought.
+        if (err.code === "OUT_OF_STOCK") await fetchCart();
         return;
       }
       const data = await res.json();
+      if (data.paidByWallet) {
+        // The wallet covered everything: the order is already confirmed.
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await fetchCart();
+        router.replace({ pathname: "/order/[id]", params: { id: String(data.orderId) } });
+        return;
+      }
       Haptics.selectionAsync();
       router.push({
         pathname: "/razorpay-payment",
@@ -106,6 +149,49 @@ export default function CheckoutScreen() {
             />
           </View>
 
+          {wallet && spendablePaise > 0 ? (
+            <View style={styles.section}>
+              <View style={styles.walletHeader}>
+                <Ionicons name="wallet-outline" size={20} color={Colors.light.tint} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.paymentTitle}>Pay with wallet</Text>
+                  <Text style={styles.paymentSubtitle}>Available balance {inr(spendablePaise)}</Text>
+                </View>
+                <Switch
+                  value={useWallet}
+                  onValueChange={(v) => { Haptics.selectionAsync(); setUseWallet(v); }}
+                  trackColor={{ true: Colors.light.tint, false: Colors.light.border }}
+                />
+              </View>
+              {useWallet ? (
+                <View style={styles.splitBox}>
+                  <View style={styles.splitRow}>
+                    <Text style={styles.splitLabel}>From wallet</Text>
+                    <Text style={styles.splitValue}>− {inr(walletPaise)}</Text>
+                  </View>
+                  <View style={styles.splitRow}>
+                    <Text style={styles.splitLabel}>{onlinePaise > 0 ? "Pay online" : "To pay"}</Text>
+                    <Text style={[styles.splitValue, { fontWeight: "700" }]}>{inr(onlinePaise)}</Text>
+                  </View>
+                  <Text style={styles.splitNote}>
+                    {onlinePaise > 0
+                      ? "Your wallet does not cover the full amount, so you pay the rest online."
+                      : "Your wallet covers the whole order. No online payment needed."}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
+          {wallet && lockedPaise > 0 ? (
+            <View style={styles.lockedNote}>
+              <Ionicons name="lock-closed-outline" size={16} color="#b45309" />
+              <Text style={styles.lockedNoteText}>
+                {inr(lockedPaise)} saved in your chit plans cannot be used until the plan completes in August.
+              </Text>
+            </View>
+          ) : null}
+
           {/* Payment Info */}
           <View style={[styles.section, styles.paymentInfo]}>
             <View style={styles.paymentRow}>
@@ -129,8 +215,8 @@ export default function CheckoutScreen() {
 
         <View style={[styles.footer, { paddingBottom: bottomPad + 16 }]}>
           <View style={styles.footerTotal}>
-            <Text style={styles.footerTotalLabel}>Total Amount</Text>
-            <Text style={styles.footerTotalAmount}>₹{cart.total.toFixed(0)}</Text>
+            <Text style={styles.footerTotalLabel}>{walletPaise > 0 ? "To pay now" : "Total Amount"}</Text>
+            <Text style={styles.footerTotalAmount}>{inr(onlinePaise)}</Text>
           </View>
           <Pressable
             style={[styles.placeBtn, isLoading && styles.placeBtnDisabled]}
@@ -141,8 +227,10 @@ export default function CheckoutScreen() {
               <ActivityIndicator size="small" color="#fff" />
             ) : (
               <>
-                <Ionicons name="lock-closed" size={18} color="#fff" />
-                <Text style={styles.placeBtnText}>Pay ₹{cart.total.toFixed(0)}</Text>
+                <Ionicons name={onlinePaise === 0 ? "wallet-outline" : "lock-closed"} size={18} color="#fff" />
+                <Text style={styles.placeBtnText}>
+                  {onlinePaise === 0 ? `Place Order · ${inr(totalPaise)} from wallet` : `Pay ${inr(onlinePaise)}`}
+                </Text>
               </>
             )}
           </Pressable>
@@ -164,6 +252,18 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.light.border,
   },
   paymentInfo: { gap: 0, padding: 16 },
+  walletHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  splitBox: { backgroundColor: Colors.light.tintLight, borderRadius: 12, padding: 12, gap: 6 },
+  splitRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  splitLabel: { fontSize: 13, color: Colors.light.textSecondary },
+  splitValue: { fontSize: 15, color: Colors.light.text },
+  splitNote: { fontSize: 12, color: "#3B6D11", marginTop: 2, lineHeight: 17 },
+  lockedNote: {
+    flexDirection: "row", alignItems: "flex-start", gap: 8,
+    backgroundColor: "#FFFBEB", borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: "#FDE68A",
+  },
+  lockedNoteText: { fontSize: 12, color: "#b45309", flex: 1, lineHeight: 17 },
   paymentRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   paymentTitle: { fontSize: 14, color: Colors.light.text, marginBottom: 2 },
   paymentSubtitle: { fontSize: 12, color: Colors.light.textMuted, lineHeight: 18 },

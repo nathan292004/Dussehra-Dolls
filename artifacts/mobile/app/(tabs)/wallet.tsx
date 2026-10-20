@@ -27,6 +27,7 @@ interface Transaction {
 
 interface WalletData {
   balance: number;
+  lockedBalance?: number;
   transactions: Transaction[];
 }
 
@@ -132,6 +133,21 @@ export default function WalletScreen() {
             <Text style={styles.addFundsBtnText}>Add Money</Text>
           </Pressable>
         </View>
+
+        {(wallet?.lockedBalance ?? 0) > 0 && (
+          <View style={styles.lockedCard}>
+            <Ionicons name="lock-closed" size={18} color="#b45309" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.lockedTitle}>
+                ₹{(wallet?.lockedBalance ?? 0).toLocaleString("en-IN")} saved in your chit plans
+              </Text>
+              <Text style={styles.lockedText}>
+                Locked until your plan completes in August. Then it moves to your balance along with your bonus points.
+                Until then you cannot spend it, so pay separately for anything you buy.
+              </Text>
+            </View>
+          </View>
+        )}
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Transaction History</Text>
@@ -243,6 +259,13 @@ const styles = StyleSheet.create({
     borderRadius: 35,
     backgroundColor: "rgba(255,255,255,0.04)",
   },
+  lockedCard: {
+    flexDirection: "row", alignItems: "flex-start", gap: 10,
+    backgroundColor: "#FFFBEB", borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: "#FDE68A",
+  },
+  lockedTitle: { fontSize: 14, fontWeight: "700", color: "#92400e" },
+  lockedText: { fontSize: 12, color: "#b45309", marginTop: 3, lineHeight: 17 },
   balanceLabel: {
     fontSize: 10,
     color: "rgba(255,255,255,0.6)",

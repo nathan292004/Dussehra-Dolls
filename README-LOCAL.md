@@ -68,6 +68,40 @@ Press Ctrl+C to stop the apps. PostgreSQL keeps running and preserves data. Stop
 .\Start-Local.ps1 --stop-db
 ```
 
+## Database changes and starting clean
+
+The launcher builds and updates the local database with **versioned migrations** (never by guessing
+from the code). The first time you run this version on an older local database it will refuse and
+tell you to start clean, because the customer id format changed. Clear the local database with:
+
+```powershell
+.\Start-Local.ps1 --reset-db
+```
+
+This deletes all local customers, orders, wallets and chit plans and rebuilds the tables.
+Afterwards create an admin login again (`pnpm --filter @workspace/api-server run create-admin <username> "<Name>"`).
+
+How to change the database safely (and how to do it on a live server) is explained in
+[docs/DATABASE.md](docs/DATABASE.md).
+
+## Running the automated tests
+
+The end-to-end suite needs a throwaway PostgreSQL database whose name contains `test`
+(it empties every table in it):
+
+```powershell
+$env:DATABASE_URL = 'postgresql://USER:PASSWORD@127.0.0.1:5433/dolldime_test'
+pnpm --filter @workspace/db run migrate
+$env:TEST_DATABASE_URL = $env:DATABASE_URL
+pnpm --filter @workspace/api-server run test:e2e
+```
+
+## Background jobs
+
+Locally the API server also runs the reminder and abandoned-checkout jobs. In production run them
+in a single separate worker instead (`pnpm --filter @workspace/api-server run start:worker`) and set
+`RUN_BACKGROUND_JOBS=false` on the web servers.
+
 ## Installed tools and dependencies
 
 All ten workspace packages are installed, including the mockup and shared libraries. Project-local tools in the ignored `.tools` folder are Node.js 24.21.0, pnpm 10.32.1, and PostgreSQL 16.14. PostgreSQL Windows binaries are provided by [embedded-postgres](https://github.com/leinelissen/embedded-postgres). No system-wide PostgreSQL service is needed.

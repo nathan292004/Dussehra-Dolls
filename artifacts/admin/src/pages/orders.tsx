@@ -10,7 +10,7 @@ type OrderItem = { productId: number; productName: string; quantity: number; pri
 type Order = {
   id: number; userId: number; customerName: string; customerPhone?: string;
   items: OrderItem[]; total: number; status: string; paymentStatus: string;
-  address?: string; paymentMethod?: string; createdAt: string;
+  address?: string; paymentMethod?: string; walletAmount?: number; createdAt: string;
 };
 
 function useOrders() {
@@ -215,7 +215,15 @@ export function Orders() {
                                   <h4 className="text-xs font-bold uppercase text-muted-foreground mb-3 flex items-center gap-1.5"><CreditCard className="w-4 h-4" /> Payment</h4>
                                   <div className="bg-white border border-border rounded-xl p-4 text-sm text-muted-foreground flex items-center gap-2">
                                     <Badge variant={order.paymentStatus === "paid" ? "success" : "default"}>{order.paymentStatus}</Badge>
-                                    <span>{order.paymentMethod || "Standard"}</span>
+                                    <span>
+                                      {order.paymentMethod === "wallet+razorpay"
+                                        ? `Wallet ${formatCurrency(order.walletAmount ?? 0)} + Online ${formatCurrency(order.total - (order.walletAmount ?? 0))}`
+                                        : order.paymentMethod === "wallet"
+                                        ? "Paid from wallet"
+                                        : order.paymentMethod === "razorpay"
+                                        ? "Paid online"
+                                        : order.paymentMethod || "Standard"}
+                                    </span>
                                   </div>
                                 </div>
                               </div>

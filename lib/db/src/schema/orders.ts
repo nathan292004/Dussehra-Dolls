@@ -1,11 +1,9 @@
-import { pgTable, serial, integer, text, numeric, timestamp, jsonb } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod/v4";
+import { pgTable, serial, integer, text, numeric, timestamp, jsonb, boolean, index } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
 export const ordersTable = pgTable("orders", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => usersTable.id),
+  userId: text("user_id").notNull().references(() => usersTable.userId),
   status: text("status").notNull().default("pending"),
   paymentStatus: text("payment_status").notNull().default("pending"),
   razorpayOrderId: text("razorpay_order_id").unique(),
@@ -17,11 +15,17 @@ export const ordersTable = pgTable("orders", {
     subtotal: number;
   }>>().notNull(),
   total: numeric("total", { precision: 10, scale: 2 }).notNull(),
+  // Part of the total paid from the customer's wallet (the rest is paid online).
+  walletAmount: numeric("wallet_amount", { precision: 10, scale: 2 }).default("0").notNull(),
+  // True while this unpaid checkout is holding stock for its items (products.reserved_stock).
+  // Cleared exactly once: when the order is paid (stock sold) or cancelled/expired (stock released).
+  stockReserved: boolean("stock_reserved").default(false).notNull(),
   address: text("address"),
   paymentMethod: text("payment_method"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [
+  index("orders_user_idx").on(t.userId, t.createdAt),
+  index("orders_status_idx").on(t.status, t.paymentStatus),
+]);
 
-export const insertOrderSchema = createInsertSchema(ordersTable).omit({ id: true, createdAt: true });
-export type InsertOrder = z.infer<typeof insertOrderSchema>;
 export type Order = typeof ordersTable.$inferSelect;

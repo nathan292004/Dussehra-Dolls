@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, unlinkSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
@@ -20,6 +20,14 @@ if (!existsSync(envFile)) {
   writeFileSync(envFile, `NODE_ENV=development\nPORT=3001\nDATABASE_URL=postgresql://dolldime:${password}@127.0.0.1:5433/dolldime\n`);
 }
 process.loadEnvFile(envFile);
+for (const name of ['ADMIN_TOKEN_SECRET', 'JWT_SECRET']) {
+  if (!process.env[name]) {
+    process.env[name] = randomBytes(32).toString('hex');
+    appendFileSync(envFile, `
+${name}=${process.env[name]}
+`);
+  }
+}
 const databaseUrl = new URL(process.env.DATABASE_URL);
 const pgBin = path.join(root, '.tools/node_modules/@embedded-postgres/windows-x64/native/bin');
 const data = path.join(local, 'postgres-data');
@@ -54,12 +62,19 @@ if (useLocalDb) {
   const client = new Client({ connectionString: new URL('postgres', databaseUrl).href });
   await client.connect();
   const databaseName = decodeURIComponent(databaseUrl.pathname.slice(1));
+  const quoted = `"${databaseName.replaceAll('"', '""')}"`;
+  // --reset-db wipes the LOCAL database (all customers, orders, chit plans) and starts clean.
+  if (process.argv.includes('--reset-db')) {
+    console.log(`Resetting local database ${databaseName} ...`);
+    await client.query(`DROP DATABASE IF EXISTS ${quoted} WITH (FORCE)`);
+  }
   const result = await client.query('SELECT 1 FROM pg_database WHERE datname=$1', [databaseName]);
   if (!result.rowCount) {
-    await client.query(`CREATE DATABASE "${databaseName.replaceAll('"', '""')}"`);
+    await client.query(`CREATE DATABASE ${quoted}`);
   }
   await client.end();
-  run(node, [pnpm, '--filter', '@workspace/db', 'run', 'push']);
+  // The database is changed only through versioned migration files (see docs/DATABASE.md).
+  run(node, [pnpm, '--filter', '@workspace/db', 'run', 'migrate']);
 }
 if (process.argv.includes('--setup-db')) process.exit(0);
 

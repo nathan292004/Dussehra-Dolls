@@ -1,141 +1,105 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { chitPlansTable, chitEnrollmentsTable } from "@workspace/db/schema";
-import { eq, and } from "drizzle-orm";
+import { chitPlansTable, usersTable } from "@workspace/db/schema";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { authMiddleware, AuthRequest } from "../middlewares/auth";
+import {
+  CHIT_VALUE,
+  CHIT_DURATION_MONTHS,
+  MIN_CHITS,
+  MAX_CHITS,
+  isValidChitCount,
+  chitPlanFigures,
+  getCycleStatus,
+  istParts,
+} from "../lib/chit-rules";
+import { describeChitPlan } from "../lib/chit-view";
+import { paiseToDecimal } from "../lib/money";
+import { uniqueViolationConstraint } from "../lib/lockout";
+import { notifyChitPlanSubmitted } from "../lib/whatsapp-notifications";
 
 const router = Router();
 
-router.get("/", async (_req, res) => {
-  try {
-    const plans = await db.select().from(chitPlansTable);
-    return res.json(plans.map(p => ({
-      ...p,
-      totalAmount: parseFloat(p.totalAmount),
-      monthlyContribution: parseFloat(p.monthlyContribution),
-      members: p.currentMembers,
-    })));
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
+// What the customer needs to know before joining: the standard rules and where we are in the cycle.
+router.get("/cycle", (_req, res) => {
+  const cycle = getCycleStatus();
+  return res.json({
+    ...cycle,
+    chitValue: CHIT_VALUE,
+    durationMonths: CHIT_DURATION_MONTHS,
+    minChits: MIN_CHITS,
+    maxChits: MAX_CHITS,
+    today: istParts(),
+  });
 });
 
+// The customer's own plans, newest first: under review, rejected, active and completed.
 router.get("/my", authMiddleware as any, async (req: AuthRequest, res) => {
   try {
-    const enrollments = await db
-      .select({ enrollment: chitEnrollmentsTable, plan: chitPlansTable })
-      .from(chitEnrollmentsTable)
-      .leftJoin(chitPlansTable, eq(chitEnrollmentsTable.chitPlanId, chitPlansTable.id))
-      .where(eq(chitEnrollmentsTable.userId, req.userId!));
-
-    return res.json(enrollments.filter(e => e.plan).map(e => ({
-      id: e.enrollment.id,
-      chitPlan: {
-        ...e.plan!,
-        totalAmount: parseFloat(e.plan!.totalAmount),
-        monthlyContribution: parseFloat(e.plan!.monthlyContribution),
-        members: e.plan!.currentMembers,
-      },
-      joinedAt: e.enrollment.joinedAt,
-      amountPaid: parseFloat(e.enrollment.amountPaid),
-      nextPaymentDate: e.enrollment.nextPaymentDate,
-      status: e.enrollment.status,
-    })));
+    const plans = await db
+      .select()
+      .from(chitPlansTable)
+      .where(and(eq(chitPlansTable.userId, req.userId!), ne(chitPlansTable.status, "cancelled")))
+      .orderBy(desc(chitPlansTable.createdAt), desc(chitPlansTable.id));
+    return res.json(plans.map((p) => describeChitPlan(p)));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-router.post("/", authMiddleware as any, async (req: AuthRequest, res) => {
-  try {
-    const { chitPlanId } = req.body;
-    const [plan] = await db.select().from(chitPlansTable).where(eq(chitPlansTable.id, chitPlanId)).limit(1);
-    if (!plan) return res.status(404).json({ error: "Chit plan not found" });
-    if (plan.status !== "open") return res.status(400).json({ error: "Chit plan is not open" });
-    if (plan.currentMembers >= plan.maxMembers) return res.status(400).json({ error: "Chit plan is full" });
-
-    const existing = await db.select().from(chitEnrollmentsTable)
-      .where(and(eq(chitEnrollmentsTable.userId, req.userId!), eq(chitEnrollmentsTable.chitPlanId, chitPlanId)))
-      .limit(1);
-    if (existing.length > 0) return res.status(409).json({ error: "Already enrolled" });
-
-    const nextPayment = new Date();
-    nextPayment.setMonth(nextPayment.getMonth() + 1);
-
-    const [enrollment] = await db.insert(chitEnrollmentsTable).values({
-      userId: req.userId!,
-      chitPlanId,
-      nextPaymentDate: nextPayment,
-    }).returning();
-
-    await db.update(chitPlansTable)
-      .set({ currentMembers: plan.currentMembers + 1 })
-      .where(eq(chitPlansTable.id, chitPlanId));
-
-    return res.status(201).json({
-      id: enrollment.id,
-      chitPlan: { ...plan, totalAmount: parseFloat(plan.totalAmount), monthlyContribution: parseFloat(plan.monthlyContribution), members: plan.currentMembers + 1 },
-      joinedAt: enrollment.joinedAt,
-      amountPaid: parseFloat(enrollment.amountPaid),
-      nextPaymentDate: enrollment.nextPaymentDate,
-      status: enrollment.status,
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// Enroll with a custom amount and duration — creates a personal chit plan on the fly
+// Submit a plan for review. It cannot be paid for until an admin approves it.
+// One plan per customer per plan year (under review or approved): the database enforces this,
+// so if two requests arrive together one is created and the other is told to retry.
 router.post("/enroll-custom", authMiddleware as any, async (req: AuthRequest, res) => {
   try {
-    const { amount, durationMonths } = req.body;
-    if (!amount || !durationMonths) {
-      return res.status(400).json({ error: "Amount and durationMonths are required" });
+    const { chits } = req.body ?? {};
+    if (!isValidChitCount(chits)) {
+      return res.status(400).json({ error: `Number of chits must be a whole number from ${MIN_CHITS} to ${MAX_CHITS}` });
     }
-    const amt = parseFloat(amount);
-    const dur = parseInt(durationMonths);
-    if (isNaN(amt) || amt < 1000) return res.status(400).json({ error: "Minimum amount is ₹1,000" });
-    if (isNaN(dur) || dur < 1 || dur > 24) return res.status(400).json({ error: "Duration must be 1-24 months" });
 
-    const monthlyContribution = amt / dur;
-    const endDate = new Date();
-    endDate.setMonth(endDate.getMonth() + dur);
+    const cycle = getCycleStatus();
+    if (!cycle.open) {
+      return res.status(400).json({
+        error: `Chit plans are closed for now. The next cycle starts in October ${cycle.nextCycleStartYear}.`,
+      });
+    }
 
-    const [plan] = await db.insert(chitPlansTable).values({
-      name: `Custom ₹${amt.toLocaleString("en-IN")} – ${dur} months`,
-      description: `Personal chit plan`,
-      totalAmount: amt.toFixed(2),
-      monthlyContribution: monthlyContribution.toFixed(2),
-      duration: dur,
-      maxMembers: 1,
-      currentMembers: 0,
-      status: "open",
-    }).returning();
+    const figures = chitPlanFigures(chits);
+    let plan;
+    try {
+      [plan] = await db.insert(chitPlansTable).values({
+        userId: req.userId!,
+        name: `${chits} Chit${chits === 1 ? "" : "s"} – ₹${figures.monthly.toLocaleString("en-IN")}/month`,
+        chits,
+        monthlyAmount: paiseToDecimal(figures.monthly * 100),
+        totalAmount: paiseToDecimal(figures.total * 100),
+        bonusPoints: figures.bonusPoints,
+        durationMonths: CHIT_DURATION_MONTHS,
+        cycleStartYear: cycle.startYear,
+      }).returning();
+    } catch (err) {
+      if (uniqueViolationConstraint(err) === "chit_plans_one_per_user_per_year") {
+        return res.status(409).json({
+          error: "You already have a chit plan for this year (under review or approved). Please check My Chits. If you just submitted one, wait a moment and refresh.",
+          code: "CHIT_PLAN_EXISTS",
+        });
+      }
+      throw err;
+    }
 
-    const nextPayment = new Date();
-    nextPayment.setMonth(nextPayment.getMonth() + 1);
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.userId, req.userId!)).limit(1);
+    if (user?.phone) {
+      notifyChitPlanSubmitted({
+        phone: user.phone,
+        name: [user.fname, user.lname].filter(Boolean).join(" ") || "Customer",
+        userId: user.userId,
+        chitPlanId: plan.id,
+        planName: plan.name,
+      }).catch((e) => console.error("[WhatsApp] Chit submitted notify failed:", e));
+    }
 
-    const [enrollment] = await db.insert(chitEnrollmentsTable).values({
-      userId: req.userId!,
-      chitPlanId: plan.id,
-      nextPaymentDate: nextPayment,
-    }).returning();
-
-    await db.update(chitPlansTable)
-      .set({ currentMembers: 1 })
-      .where(eq(chitPlansTable.id, plan.id));
-
-    return res.status(201).json({
-      id: enrollment.id,
-      chitPlan: { ...plan, totalAmount: parseFloat(plan.totalAmount), monthlyContribution: parseFloat(plan.monthlyContribution), members: 1 },
-      joinedAt: enrollment.joinedAt,
-      amountPaid: 0,
-      nextPaymentDate: enrollment.nextPaymentDate,
-      status: enrollment.status,
-    });
+    return res.status(201).json(describeChitPlan(plan));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });

@@ -21,6 +21,8 @@ interface Order {
   status: string;
   items: Array<{ productId: number; productName: string; quantity: number; price: number; subtotal: number }>;
   total: number;
+  walletAmount?: number;
+  onlineAmount?: number;
   address?: string;
   paymentMethod?: string;
   createdAt: string;
@@ -148,7 +150,15 @@ export default function OrderDetailScreen() {
                 <Ionicons name="card-outline" size={16} color={Colors.light.tint} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.detailLabel}>Payment Method</Text>
-                  <Text style={styles.detailValue}>{order.paymentMethod}</Text>
+                  <Text style={styles.detailValue}>
+                    {order.paymentMethod === "wallet"
+                      ? "Paid from wallet"
+                      : order.paymentMethod === "wallet+razorpay"
+                      ? `Wallet ₹${(order.walletAmount ?? 0).toLocaleString("en-IN")} + Online ₹${(order.onlineAmount ?? 0).toLocaleString("en-IN")}`
+                      : order.paymentMethod === "razorpay"
+                      ? "Paid online"
+                      : order.paymentMethod}
+                  </Text>
                 </View>
               </View>
             )}

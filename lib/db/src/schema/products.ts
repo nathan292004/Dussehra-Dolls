@@ -1,6 +1,5 @@
-import { pgTable, serial, text, numeric, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod/v4";
+import { pgTable, serial, text, numeric, integer, boolean, timestamp, jsonb, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const productsTable = pgTable("products", {
   id: serial("id").primaryKey(),
@@ -11,6 +10,8 @@ export const productsTable = pgTable("products", {
   category: text("category").notNull(),
   imageUrl: text("image_url"),
   stock: integer("stock").default(0).notNull(),
+  // Units held by checkouts that are waiting for payment. Customers can buy at most (stock - reserved_stock).
+  reservedStock: integer("reserved_stock").default(0).notNull(),
   rating: numeric("rating", { precision: 3, scale: 2 }).default("0"),
   reviewCount: integer("review_count").default(0).notNull(),
   isFeatured: boolean("is_featured").default(false).notNull(),
@@ -20,8 +21,10 @@ export const productsTable = pgTable("products", {
   location: text("location"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => [
+  // Safety nets in the database itself: stock can never go negative, and more can never be held than exists.
+  check("products_stock_not_negative", sql`${t.stock} >= 0`),
+  check("products_reserved_within_stock", sql`${t.reservedStock} >= 0 AND ${t.reservedStock} <= ${t.stock}`),
+]);
 
-export const insertProductSchema = createInsertSchema(productsTable).omit({ id: true, createdAt: true, updatedAt: true });
-export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type Product = typeof productsTable.$inferSelect;

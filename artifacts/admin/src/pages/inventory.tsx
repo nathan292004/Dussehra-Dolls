@@ -12,6 +12,8 @@ type Product = {
   name: string;
   serialNumber?: string | null;
   stock: number;
+  reservedStock?: number;
+  availableStock?: number;
   location?: string | null;
   imageUrl?: string | null;
   category: string;
@@ -37,7 +39,10 @@ function useAdjustProduct() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stock, location }),
       });
-      if (!res.ok) throw new Error("Failed to adjust");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to adjust");
+      }
       return res.json();
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/admin/products"] }),
@@ -50,18 +55,21 @@ export function Inventory() {
 
   const [adjustTarget, setAdjustTarget] = React.useState<Product | null>(null);
   const [adjStock, setAdjStock] = React.useState(0);
+  const [adjustError, setAdjustError] = React.useState("");
   const [adjLocation, setAdjLocation] = React.useState("");
 
   const openAdjust = (p: Product) => {
     setAdjustTarget(p);
     setAdjStock(p.stock);
+    setAdjustError("");
     setAdjLocation(p.location || "");
   };
 
   const handleAdjust = () => {
     if (!adjustTarget) return;
     adjustMutation.mutate({ id: adjustTarget.id, stock: adjStock, location: adjLocation }, {
-      onSuccess: () => setAdjustTarget(null),
+      onSuccess: () => { setAdjustError(""); setAdjustTarget(null); },
+      onError: (e: unknown) => setAdjustError(e instanceof Error ? e.message : "Failed to adjust"),
     });
   };
 
@@ -122,7 +130,10 @@ export function Inventory() {
                       ) : <span className="text-warm-muted text-xs">—</span>}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`font-semibold ${p.stock < 5 ? "text-destructive" : "text-ink"}`}>{p.stock}</span>
+                      <span className={`font-semibold ${(p.availableStock ?? p.stock) < 5 ? "text-destructive" : "text-ink"}`}>{p.stock}</span>
+                      {(p.reservedStock ?? 0) > 0 && (
+                        <p className="text-[11px] text-amber-700">{p.reservedStock} frozen while customers pay · {p.availableStock} available</p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-warm-secondary">
                       {p.location ? (
@@ -179,8 +190,10 @@ export function Inventory() {
           {adjustTarget && (
             <div className="p-3 rounded-lg bg-parchment text-xs text-warm-secondary">
               Serial: {adjustTarget.serialNumber || "None"} · Current stock: {adjustTarget.stock}
+              {(adjustTarget.reservedStock ?? 0) > 0 && ` · ${adjustTarget.reservedStock} frozen by customers who are paying (stock cannot go below this)`}
             </div>
           )}
+          {adjustError && <p role="alert" className="text-sm text-destructive">{adjustError}</p>}
           <div className="flex justify-end gap-3 pt-4 border-t border-warm-border">
             <Button variant="outline" onClick={() => setAdjustTarget(null)}>Cancel</Button>
             <Button onClick={handleAdjust} isLoading={adjustMutation.isPending}>Save Adjustments</Button>

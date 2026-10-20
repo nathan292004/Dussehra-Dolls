@@ -1,16 +1,35 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { ordersTable, cartItemsTable, productsTable, walletsTable, transactionsTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { ordersTable } from "@workspace/db/schema";
+import { and, desc, eq } from "drizzle-orm";
 import { authMiddleware, AuthRequest } from "../middlewares/auth";
+import { fromPaise, toPaise } from "../lib/money";
 
 const router = Router();
 router.use(authMiddleware as any);
 
+// Orders are created only by the payment routes (wallet and/or Razorpay), after the money
+// is secured. There is deliberately no "create order" endpoint here.
+function formatOrder(o: typeof ordersTable.$inferSelect) {
+  const total = toPaise(o.total);
+  const wallet = toPaise(o.walletAmount);
+  return {
+    ...o,
+    total: fromPaise(total),
+    walletAmount: fromPaise(wallet),
+    onlineAmount: fromPaise(total - wallet),
+  };
+}
+
 router.get("/", async (req: AuthRequest, res) => {
   try {
-    const orders = await db.select().from(ordersTable).where(eq(ordersTable.userId, req.userId!));
-    return res.json(orders.map(o => ({ ...o, total: parseFloat(o.total) })));
+    const orders = await db
+      .select()
+      .from(ordersTable)
+      .where(eq(ordersTable.userId, req.userId!))
+      .orderBy(desc(ordersTable.createdAt), desc(ordersTable.id));
+    // Orders still waiting for payment or cancelled before payment are not shown as purchases.
+    return res.json(orders.filter(o => o.paymentStatus === "paid").map(formatOrder));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
@@ -20,57 +39,14 @@ router.get("/", async (req: AuthRequest, res) => {
 router.get("/:id", async (req: AuthRequest, res) => {
   try {
     const id = parseInt(String(req.params.id), 10);
-    const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
-    if (!order || order.userId !== req.userId) return res.status(404).json({ error: "Order not found" });
-    return res.json({ ...order, total: parseFloat(order.total) });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-router.post("/", async (req: AuthRequest, res) => {
-  try {
-    const { address, paymentMethod } = req.body;
-    const cartItems = await db
-      .select({ cartItem: cartItemsTable, product: productsTable })
-      .from(cartItemsTable)
-      .leftJoin(productsTable, eq(cartItemsTable.productId, productsTable.id))
-      .where(eq(cartItemsTable.userId, req.userId!));
-
-    if (cartItems.length === 0) {
-      return res.status(400).json({ error: "Cart is empty" });
-    }
-
-    const orderItems = cartItems.filter(i => i.product).map(i => ({
-      productId: i.cartItem.productId,
-      productName: i.product!.name,
-      quantity: i.cartItem.quantity,
-      price: parseFloat(i.product!.price),
-      subtotal: parseFloat(i.product!.price) * i.cartItem.quantity,
-    }));
-
-    const total = orderItems.reduce((sum, i) => sum + i.subtotal, 0);
-
-    const [order] = await db.insert(ordersTable).values({
-      userId: req.userId!,
-      items: orderItems,
-      total: total.toFixed(2),
-      address,
-      paymentMethod,
-      status: "confirmed",
-    }).returning();
-
-    await db.delete(cartItemsTable).where(eq(cartItemsTable.userId, req.userId!));
-
-    await db.insert(transactionsTable).values({
-      userId: req.userId!,
-      type: "debit",
-      amount: total.toFixed(2),
-      description: `Order #${order.id}`,
-    });
-
-    return res.status(201).json({ ...order, total: parseFloat(order.total) });
+    if (!Number.isInteger(id)) return res.status(404).json({ error: "Order not found" });
+    const [order] = await db
+      .select()
+      .from(ordersTable)
+      .where(and(eq(ordersTable.id, id), eq(ordersTable.userId, req.userId!)))
+      .limit(1);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    return res.json(formatOrder(order));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });

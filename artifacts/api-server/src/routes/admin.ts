@@ -2,15 +2,12 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import {
   productsTable, ordersTable, usersTable, walletsTable,
-  chitPlansTable, chitEnrollmentsTable, vendorsTable,
+  chitPlansTable, vendorsTable,
 } from "@workspace/db/schema";
-import { eq, lt, count, sum, desc, sql } from "drizzle-orm";
-import {
-  notifyOrderConfirmed,
-  notifyChitEmiPaid,
-  notifyWalletTopUp,
-  notifyChitDueReminder,
-} from "../lib/whatsapp-notifications";
+import { and, eq, count, sum, desc, sql, lte } from "drizzle-orm";
+import { paiseToDecimal, parsePaise, toRupees } from "../lib/money";
+import adminChitsRouter from "./admin-chits";
+import adminOpsRouter from "./admin-ops";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -59,16 +56,19 @@ router.post("/upload", upload.single("image"), (req, res) => {
   res.json({ url });
 });
 
+// Admin sees the real numbers: stock on the shelf, units held by unpaid checkouts, and what can still be sold.
 const formatProduct = (p: typeof productsTable.$inferSelect) => ({
   ...p,
-  price: parseFloat(p.price),
-  originalPrice: p.originalPrice ? parseFloat(p.originalPrice) : null,
+  availableStock: Math.max(p.stock - p.reservedStock, 0),
+  price: toRupees(p.price),
+  originalPrice: p.originalPrice ? toRupees(p.originalPrice) : null,
   rating: p.rating ? parseFloat(p.rating) : 0,
 });
 
 const formatOrder = (o: typeof ordersTable.$inferSelect & { customerName?: string | null; customerPhone?: string | null }) => ({
   ...o,
-  total: parseFloat(o.total),
+  total: toRupees(o.total),
+  walletAmount: toRupees(o.walletAmount),
   customerName: o.customerName ?? "Unknown",
   customerPhone: o.customerPhone ?? "",
 });
@@ -77,11 +77,14 @@ const formatOrder = (o: typeof ordersTable.$inferSelect & { customerName?: strin
 router.get("/stats", async (_req, res) => {
   try {
     const [totalOrdersRow] = await db.select({ value: count() }).from(ordersTable);
-    const [revenueRow] = await db.select({ value: sum(ordersTable.total) }).from(ordersTable);
+    const [revenueRow] = await db.select({ value: sum(ordersTable.total) }).from(ordersTable).where(eq(ordersTable.paymentStatus, "paid"));
     const [productCountRow] = await db.select({ value: count() }).from(productsTable);
-    const [userCountRow] = await db.select({ value: count() }).from(usersTable);
+    const [userCountRow] = await db.select({ value: count() }).from(usersTable).where(eq(usersTable.isDeleted, false));
     const [walletCountRow] = await db.select({ value: count() }).from(walletsTable);
-    const lowStockRows = await db.select({ value: count() }).from(productsTable).where(lt(productsTable.stock, 5));
+    const lowStockRows = await db.select({ value: count() }).from(productsTable)
+      .where(sql`${productsTable.stock} - ${productsTable.reservedStock} < 5`);
+    const [pendingPlansRow] = await db.select({ value: count() }).from(chitPlansTable)
+      .where(and(eq(chitPlansTable.isApproved, false), eq(chitPlansTable.isRejected, false), eq(chitPlansTable.status, "active")));
 
     const recentOrders = await db
       .select({
@@ -94,23 +97,24 @@ router.get("/stats", async (_req, res) => {
         address: ordersTable.address,
         items: ordersTable.items,
         createdAt: ordersTable.createdAt,
-        customerName: usersTable.name,
+        customerName: sql<string>`concat_ws(' ', ${usersTable.fname}, ${usersTable.lname})`,
       })
       .from(ordersTable)
-      .leftJoin(usersTable, eq(ordersTable.userId, usersTable.id))
+      .leftJoin(usersTable, eq(ordersTable.userId, usersTable.userId))
       .orderBy(desc(ordersTable.createdAt))
       .limit(10);
 
     return res.json({
       totalOrders: Number(totalOrdersRow.value ?? 0),
-      totalRevenue: parseFloat(revenueRow.value ?? "0"),
+      totalRevenue: toRupees(revenueRow.value ?? "0"),
       activeProducts: Number(productCountRow.value ?? 0),
       lowStockCount: Number(lowStockRows[0]?.value ?? 0),
       totalUsers: Number(userCountRow.value ?? 0),
       totalWallets: Number(walletCountRow.value ?? 0),
+      pendingChitApprovals: Number(pendingPlansRow.value ?? 0),
       recentOrders: recentOrders.map(o => ({
         ...o,
-        total: parseFloat(o.total),
+        total: toRupees(o.total),
         customerName: o.customerName ?? "Unknown",
       })),
     });
@@ -134,17 +138,29 @@ router.get("/products", async (_req, res) => {
 router.post("/products", async (req, res) => {
   try {
     const { name, description, price, originalPrice, category, imageUrl, stock, isFeatured, tags, serialNumber, location } = req.body;
-    if (!name || !price || !category) {
+    if (!name || price === undefined || price === null || price === "" || !category) {
       return res.status(400).json({ error: "name, price, and category are required" });
+    }
+    const pricePaise = parsePaise(price);
+    if (pricePaise === null || pricePaise < 0) {
+      return res.status(400).json({ error: "Price must be a valid amount with at most 2 decimals" });
+    }
+    const originalPaise = originalPrice ? parsePaise(originalPrice) : null;
+    if (originalPrice && (originalPaise === null || originalPaise < 0)) {
+      return res.status(400).json({ error: "Original price must be a valid amount with at most 2 decimals" });
+    }
+    const stockValue = stock === undefined || stock === "" ? 0 : Number(stock);
+    if (!Number.isInteger(stockValue) || stockValue < 0) {
+      return res.status(400).json({ error: "Stock must be a whole number, 0 or more" });
     }
     const [product] = await db.insert(productsTable).values({
       name,
       description: description ?? null,
-      price: parseFloat(price).toFixed(2),
-      originalPrice: originalPrice ? parseFloat(originalPrice).toFixed(2) : null,
+      price: paiseToDecimal(pricePaise),
+      originalPrice: originalPaise !== null ? paiseToDecimal(originalPaise) : null,
       category,
       imageUrl: imageUrl ?? null,
-      stock: parseInt(stock ?? "0"),
+      stock: stockValue,
       isFeatured: isFeatured ?? false,
       tags: Array.isArray(tags) ? tags : (typeof tags === "string" ? tags.split(",").map((t: string) => t.trim()).filter(Boolean) : []),
       serialNumber: serialNumber ?? null,
@@ -164,11 +180,30 @@ router.put("/products/:id", async (req, res) => {
     const updateData: Partial<typeof productsTable.$inferInsert> = {};
     if (name !== undefined) updateData.name = name;
     if (description !== undefined) updateData.description = description;
-    if (price !== undefined) updateData.price = parseFloat(price).toFixed(2);
-    if (originalPrice !== undefined) updateData.originalPrice = originalPrice ? parseFloat(originalPrice).toFixed(2) : null;
+    if (price !== undefined) {
+      const pricePaise = parsePaise(price);
+      if (pricePaise === null || pricePaise < 0) {
+        return res.status(400).json({ error: "Price must be a valid amount with at most 2 decimals" });
+      }
+      updateData.price = paiseToDecimal(pricePaise);
+    }
+    if (originalPrice !== undefined) {
+      const originalPaise = originalPrice ? parsePaise(originalPrice) : null;
+      if (originalPrice && (originalPaise === null || originalPaise < 0)) {
+        return res.status(400).json({ error: "Original price must be a valid amount with at most 2 decimals" });
+      }
+      updateData.originalPrice = originalPaise !== null ? paiseToDecimal(originalPaise) : null;
+    }
     if (category !== undefined) updateData.category = category;
     if (imageUrl !== undefined) updateData.imageUrl = imageUrl;
-    if (stock !== undefined) updateData.stock = parseInt(stock);
+    let newStock: number | null = null;
+    if (stock !== undefined) {
+      newStock = Number(stock);
+      if (!Number.isInteger(newStock) || newStock < 0) {
+        return res.status(400).json({ error: "Stock must be a whole number, 0 or more" });
+      }
+      updateData.stock = newStock;
+    }
     if (isFeatured !== undefined) updateData.isFeatured = isFeatured;
     if (rating !== undefined) updateData.rating = parseFloat(rating).toFixed(2);
     if (reviewCount !== undefined) updateData.reviewCount = parseInt(reviewCount);
@@ -178,8 +213,19 @@ router.put("/products/:id", async (req, res) => {
       updateData.tags = Array.isArray(tags) ? tags : (typeof tags === "string" ? tags.split(",").map((t: string) => t.trim()).filter(Boolean) : []);
     }
     updateData.updatedAt = new Date();
-    const [updated] = await db.update(productsTable).set(updateData).where(eq(productsTable.id, id)).returning();
-    if (!updated) return res.status(404).json({ error: "Product not found" });
+    // Stock may not be set below the units customers are currently holding in unpaid checkouts.
+    const guard = newStock !== null
+      ? and(eq(productsTable.id, id), lte(productsTable.reservedStock, newStock))
+      : eq(productsTable.id, id);
+    const [updated] = await db.update(productsTable).set(updateData).where(guard).returning();
+    if (!updated) {
+      const [exists] = await db.select({ reserved: productsTable.reservedStock }).from(productsTable).where(eq(productsTable.id, id)).limit(1);
+      if (!exists) return res.status(404).json({ error: "Product not found" });
+      return res.status(409).json({
+        error: `${exists.reserved} unit(s) are held by customers who are paying right now, so stock cannot be set below ${exists.reserved}. Try again in a few minutes.`,
+        code: "STOCK_HELD",
+      });
+    }
     return res.json(formatProduct(updated));
   } catch (err) {
     console.error(err);
@@ -190,8 +236,13 @@ router.put("/products/:id", async (req, res) => {
 router.delete("/products/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const [deleted] = await db.delete(productsTable).where(eq(productsTable.id, id)).returning();
-    if (!deleted) return res.status(404).json({ error: "Product not found" });
+    const [deleted] = await db.delete(productsTable)
+      .where(and(eq(productsTable.id, id), eq(productsTable.reservedStock, 0))).returning();
+    if (!deleted) {
+      const [exists] = await db.select({ id: productsTable.id }).from(productsTable).where(eq(productsTable.id, id)).limit(1);
+      if (!exists) return res.status(404).json({ error: "Product not found" });
+      return res.status(409).json({ error: "Customers are paying for this product right now. Try again in a few minutes.", code: "STOCK_HELD" });
+    }
     return res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -277,22 +328,24 @@ router.get("/orders", async (_req, res) => {
         id: ordersTable.id,
         userId: ordersTable.userId,
         total: ordersTable.total,
+        walletAmount: ordersTable.walletAmount,
         status: ordersTable.status,
         paymentStatus: ordersTable.paymentStatus,
         paymentMethod: ordersTable.paymentMethod,
         address: ordersTable.address,
         items: ordersTable.items,
         createdAt: ordersTable.createdAt,
-        customerName: usersTable.name,
+        customerName: sql<string>`concat_ws(' ', ${usersTable.fname}, ${usersTable.lname})`,
         customerPhone: usersTable.phone,
       })
       .from(ordersTable)
-      .leftJoin(usersTable, eq(ordersTable.userId, usersTable.id))
+      .leftJoin(usersTable, eq(ordersTable.userId, usersTable.userId))
       .orderBy(desc(ordersTable.createdAt));
 
     return res.json(orders.map(o => ({
       ...o,
-      total: parseFloat(o.total),
+      total: toRupees(o.total),
+      walletAmount: toRupees(o.walletAmount),
       customerName: o.customerName ?? "Unknown",
       customerPhone: o.customerPhone ?? "",
     })));
@@ -321,7 +374,7 @@ router.put("/orders/:id/status", async (req, res) => {
 
     const [updated] = await db.update(ordersTable).set(updateData).where(eq(ordersTable.id, id)).returning();
     if (!updated) return res.status(404).json({ error: "Order not found" });
-    return res.json({ ...updated, total: parseFloat(updated.total) });
+    return res.json({ ...updated, total: toRupees(updated.total), walletAmount: toRupees(updated.walletAmount) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
@@ -333,15 +386,23 @@ router.get("/users", async (_req, res) => {
   try {
     const users = await db
       .select({
-        id: usersTable.id,
-        name: usersTable.name,
-        email: usersTable.email,
+        userId: usersTable.userId,
+        index: usersTable.index,
+        fname: usersTable.fname,
+        lname: usersTable.lname,
+        name: sql<string>`concat_ws(' ', ${usersTable.fname}, ${usersTable.lname})`,
         phone: usersTable.phone,
+        address: usersTable.address,
+        isReseller: usersTable.isReseller,
+        resellerCode: usersTable.resellerCode,
         isActive: usersTable.isActive,
-        createdAt: usersTable.createdAt,
+        isDeleted: usersTable.isDeleted,
+        deletedAt: usersTable.deletedAt,
+        deletionReason: usersTable.deletionReason,
+        registeredAt: usersTable.registeredAt,
       })
       .from(usersTable)
-      .orderBy(desc(usersTable.createdAt));
+      .orderBy(desc(usersTable.index));
     return res.json(users);
   } catch (err) {
     console.error(err);
@@ -357,200 +418,23 @@ router.get("/wallets", async (_req, res) => {
         id: walletsTable.id,
         userId: walletsTable.userId,
         balance: walletsTable.balance,
+        chitLockedBalance: walletsTable.chitLockedBalance,
         updatedAt: walletsTable.updatedAt,
-        userName: usersTable.name,
-        userEmail: usersTable.email,
+        userName: sql<string>`concat_ws(' ', ${usersTable.fname}, ${usersTable.lname})`,
         userPhone: usersTable.phone,
       })
       .from(walletsTable)
-      .leftJoin(usersTable, eq(walletsTable.userId, usersTable.id))
+      .leftJoin(usersTable, eq(walletsTable.userId, usersTable.userId))
       .orderBy(desc(walletsTable.updatedAt));
-    return res.json(wallets.map(w => ({ ...w, balance: parseFloat(w.balance) })));
+    return res.json(wallets.map(w => ({ ...w, balance: toRupees(w.balance), chitLockedBalance: toRupees(w.chitLockedBalance) })));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// ─── Chit Plans ──────────────────────────────────────────────────────────────
-router.get("/chit-plans", async (_req, res) => {
-  try {
-    const plans = await db.select().from(chitPlansTable).orderBy(desc(chitPlansTable.createdAt));
-    return res.json(plans.map(p => ({
-      ...p,
-      totalAmount: parseFloat(p.totalAmount),
-      monthlyContribution: parseFloat(p.monthlyContribution),
-    })));
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// ─── Chit Subscriptions ──────────────────────────────────────────────────────
-router.get("/chit-subscriptions", async (_req, res) => {
-  try {
-    const now = new Date();
-    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-
-    const enrollments = await db
-      .select({
-        enrollment: chitEnrollmentsTable,
-        plan: chitPlansTable,
-        user: {
-          id: usersTable.id,
-          name: usersTable.name,
-          email: usersTable.email,
-          phone: usersTable.phone,
-        },
-      })
-      .from(chitEnrollmentsTable)
-      .leftJoin(chitPlansTable, eq(chitEnrollmentsTable.chitPlanId, chitPlansTable.id))
-      .leftJoin(usersTable, eq(chitEnrollmentsTable.userId, usersTable.id))
-      .orderBy(desc(chitEnrollmentsTable.joinedAt));
-
-    const allEnrollments = enrollments.filter(e => e.plan).map(e => {
-      const amountPaid = parseFloat(e.enrollment.amountPaid);
-      const totalAmount = parseFloat(e.plan!.totalAmount);
-      const monthlyEmi = parseFloat(e.plan!.monthlyContribution);
-      const duration = e.plan!.duration ?? 0;
-      const progress = totalAmount > 0 ? Math.min(100, Math.round((amountPaid / totalAmount) * 100)) : 0;
-      const monthsCompleted = monthlyEmi > 0 ? Math.min(duration, Math.round(amountPaid / monthlyEmi)) : 0;
-      const isCompleted = e.enrollment.status === "completed" || amountPaid >= totalAmount;
-
-      const nextPayment = e.enrollment.nextPaymentDate;
-
-      // Determine accurate payment status:
-      // - paid:    nextPaymentDate is next month or later (EMI paid this month), or plan completed
-      // - overdue: nextPaymentDate is before this month (missed a past payment), plan still active
-      // - pending: nextPaymentDate is within this month (EMI not yet paid, still on time)
-      let paymentStatus: "paid" | "pending" | "overdue" = "pending";
-      let isOverdue = false;
-      let daysOverdue = 0;
-
-      if (isCompleted) {
-        paymentStatus = "paid";
-      } else if (!nextPayment || amountPaid === 0) {
-        // No payments made yet — always pending, even if nextPaymentDate is in the future
-        paymentStatus = "pending";
-      } else {
-        const nextDate = new Date(nextPayment);
-        if (nextDate >= nextMonthStart) {
-          // nextPaymentDate moved past this month → paid their EMI this month
-          paymentStatus = "paid";
-        } else if (nextDate < thisMonthStart) {
-          // nextPaymentDate is before this month → missed a payment, overdue
-          paymentStatus = "overdue";
-          isOverdue = true;
-          daysOverdue = Math.floor((now.getTime() - nextDate.getTime()) / (1000 * 60 * 60 * 24));
-        } else {
-          // nextPaymentDate is this month → EMI due but not yet paid
-          paymentStatus = "pending";
-        }
-      }
-
-      const paidThisMonth = paymentStatus === "paid" && !isCompleted ? monthlyEmi : 0;
-
-      return {
-        id: e.enrollment.id,
-        planId: e.plan!.id,
-        planName: e.plan!.name,
-        totalAmount,
-        monthlyEmi,
-        duration,
-        monthsCompleted,
-        amountPaid,
-        progress,
-        status: isCompleted ? "completed" : e.enrollment.status,
-        isCompleted,
-        isOverdue,
-        daysOverdue,
-        joinedAt: e.enrollment.joinedAt,
-        nextPaymentDate: e.enrollment.nextPaymentDate,
-        user: e.user,
-        paidThisMonth,
-        paymentStatus,
-      };
-    });
-
-    const totalSubscriptions = allEnrollments.length;
-    const thisMonthPaid = allEnrollments.filter(e => e.paymentStatus === "paid" && !e.isCompleted).length;
-    const thisMonthPending = allEnrollments.filter(e => e.paymentStatus === "pending").length;
-    const overdueCount = allEnrollments.filter(e => e.isOverdue).length;
-    const completedPlans = allEnrollments.filter(e => e.isCompleted).length;
-
-    return res.json({
-      stats: { totalSubscriptions, thisMonthPaid, thisMonthPending, overdueCount, completedPlans },
-      enrollments: allEnrollments,
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// ── WhatsApp test endpoint ───────────────────────────────────────────────────
-// POST /api/admin/test-whatsapp?type=order|chit|wallet|reminder
-// Sends a sample WhatsApp notification to WHATSAPP_TEST_NUMBER
-router.post("/test-whatsapp", async (req, res) => {
-  const testNumber = process.env.WHATSAPP_TEST_NUMBER;
-  if (!testNumber) {
-    return res.status(400).json({ error: "WHATSAPP_TEST_NUMBER env var not set" });
-  }
-
-  const type = (req.query.type as string) || "order";
-
-  try {
-    let result: any;
-
-    if (type === "order") {
-      result = await notifyOrderConfirmed({
-        phone: testNumber,
-        name: "Test Customer",
-        orderId: 1001,
-        total: 2499,
-        items: [
-          { productName: "Navratri Special Doll Set", quantity: 2, price: 999 },
-          { productName: "Dussehra Festive Doll", quantity: 1, price: 501 },
-        ],
-      });
-    } else if (type === "chit") {
-      result = await notifyChitEmiPaid({
-        phone: testNumber,
-        name: "Test Customer",
-        planName: "Gold Savings – ₹2,000/mo",
-        emiAmount: 2000,
-        totalPaid: 6000,
-        totalAmount: 24000,
-        isCompleted: false,
-        nextPaymentDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      });
-    } else if (type === "wallet") {
-      result = await notifyWalletTopUp({
-        phone: testNumber,
-        name: "Test Customer",
-        credited: 1000,
-        newBalance: 3500,
-      });
-    } else if (type === "reminder") {
-      result = await notifyChitDueReminder({
-        phone: testNumber,
-        name: "Test Customer",
-        planName: "Gold Savings – ₹2,000/mo",
-        emiAmount: 2000,
-        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        daysLeft: 1,
-      });
-    } else {
-      return res.status(400).json({ error: "type must be: order | chit | wallet | reminder" });
-    }
-
-    return res.json({ success: true, type, to: testNumber, sid: (result as any)?.sid });
-  } catch (err: any) {
-    console.error("[WhatsApp test] Error:", err);
-    return res.status(500).json({ error: err.message || "Failed to send test message" });
-  }
-});
+// ─── Chit plan approvals, subscriptions, and the operations dashboard ─────────
+router.use("/chit-plans", adminChitsRouter);
+router.use("/ops", adminOpsRouter);
 
 export default router;

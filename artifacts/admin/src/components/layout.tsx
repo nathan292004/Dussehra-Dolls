@@ -2,26 +2,50 @@ import * as React from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, ShoppingBag, Package, Truck, Users, Wallet,
-  Gift, LogOut, Menu, X, ListOrdered, Store,
+  Gift, LogOut, Menu, X, ListOrdered, Store, ClipboardCheck, BellRing,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
+import type { AdminInfo } from "@/lib/admin-session";
 
-const navItems = [
+type NavItem = {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  href: string;
+  badgeKey?: "pendingChitApprovals";
+};
+
+const navItems: NavItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/" },
   { icon: Package, label: "Products", href: "/products" },
   { icon: Truck, label: "Vendors", href: "/vendors" },
   { icon: Store, label: "Inventory", href: "/inventory" },
   { icon: ListOrdered, label: "Orders", href: "/orders" },
   { icon: Users, label: "Users", href: "/users" },
-  { icon: Gift, label: "Chit Plans", href: "/chit-plans" },
+  { icon: ClipboardCheck, label: "Chit Approvals", href: "/chit-approvals", badgeKey: "pendingChitApprovals" },
   { icon: ShoppingBag, label: "Chit Subscriptions", href: "/chit-subscriptions" },
+  { icon: BellRing, label: "Reminders & Tracking", href: "/tracking" },
   { icon: Wallet, label: "Wallets", href: "/wallets" },
 ];
 
-export function Layout({ children }: { children: React.ReactNode }) {
+export function Layout({
+  children,
+  admin,
+  onLogout,
+}: {
+  children: React.ReactNode;
+  admin: AdminInfo | null;
+  onLogout: () => void;
+}) {
   const [location] = useLocation();
   const [isMobileOpen, setIsMobileOpen] = React.useState(false);
+  // Small red number on "Chit Approvals" when plans are waiting for review.
+  const { data: stats } = useQuery<{ pendingChitApprovals?: number } | null>({
+    queryKey: ["/api/admin/stats"],
+    queryFn: async () => { const res = await fetch("/api/admin/stats"); return res.ok ? res.json() : null; },
+    refetchInterval: 30000,
+  });
 
   const SidebarContent = () => (
     <>
@@ -52,7 +76,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   <motion.div layoutId="activeTab" className="absolute left-0 top-0 bottom-0 w-[3px] bg-forest rounded-r" />
                 )}
                 <item.icon className={cn("h-4 w-4", isActive ? "text-white" : "text-white/60 group-hover:text-white")} />
-                <span className={cn("text-sm", isActive ? "font-medium" : "")}>{item.label}</span>
+                <span className={cn("text-sm flex-1", isActive ? "font-medium" : "")}>{item.label}</span>
+                {item.badgeKey && stats?.[item.badgeKey] ? (
+                  <span className="min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-semibold flex items-center justify-center">
+                    {stats[item.badgeKey]}
+                  </span>
+                ) : null}
               </div>
             </Link>
           );
@@ -62,14 +91,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <div className="p-4 border-t border-white/10 mt-auto">
         <div className="flex items-center gap-3 px-4 py-2 mb-2">
           <div className="h-8 w-8 rounded-full bg-forest flex items-center justify-center">
-            <span className="text-white text-xs font-medium">AD</span>
+            <span className="text-white text-xs font-medium">{(admin?.name || "AD").slice(0, 2).toUpperCase()}</span>
           </div>
           <div>
-            <p className="text-xs text-white font-medium">Admin</p>
+            <p className="text-xs text-white font-medium">{admin?.name || "Admin"}</p>
             <p className="text-[10px] text-white/50">Administrator</p>
           </div>
         </div>
-        <button className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-white/60 hover:bg-white/6 hover:text-white transition-colors">
+        <button onClick={onLogout} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-white/60 hover:bg-white/6 hover:text-white transition-colors">
           <LogOut className="h-4 w-4" />
           <span className="text-sm">Logout</span>
         </button>

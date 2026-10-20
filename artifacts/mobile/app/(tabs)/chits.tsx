@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,76 +6,96 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
-  Modal,
   TextInput,
   Platform,
-  KeyboardAvoidingView,
 } from "react-native";
-import Slider from "@react-native-community/slider";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { useAuth, getApiBase } from "@/context/auth";
+import {
+  CHIT_VALUE,
+  CHIT_DURATION_MONTHS,
+  CHIT_BONUS_PERCENT,
+  MIN_CHITS,
+  MAX_CHITS,
+  QUICK_PICK_CHITS,
+  chitPlanFigures,
+} from "@/constants/chit";
 
-const DEADLINE = new Date(2026, 9, 1); // October 2026
-
-const PRESET_PLANS: { amount: number; icon: React.ComponentProps<typeof Ionicons>["name"] }[] = [
-  { amount: 5000, icon: "business-outline" },
-  { amount: 10000, icon: "card-outline" },
-  { amount: 15000, icon: "wallet-outline" },
-];
-
-interface MyChitEnrollment {
+interface ChitPlan {
   id: number;
-  chitPlan: {
-    id: number;
-    name: string;
-    totalAmount: number;
-    monthlyContribution: number;
-    duration: number;
-  };
-  joinedAt: string;
+  name: string;
+  chits: number;
+  monthlyAmount: number;
+  totalAmount: number;
+  bonusPoints: number;
+  durationMonths: number;
+  cycleStartYear: number;
+  cycleLabel: string;
   amountPaid: number;
-  nextPaymentDate?: string;
-  status: string;
+  // under_review -> (admin approves) -> active -> completed, or rejected
+  reviewStatus: "under_review" | "rejected" | "active" | "completed";
+  rejectionReason: string | null;
+  monthsDue: number;
+  dueToDate: number;
+  outstanding: number;
+  monthsPaid: number;
+  currentMonthName: string | null;
+  nextPaymentDate: string | null;
 }
 
-// Match the API's supported duration range. The campaign cutoff is validated
-// separately; it must not collapse the slider to identical min/max values.
-const MAX_DURATION_MONTHS = 24;
+interface CycleInfo {
+  open: boolean;
+  startYear: number;
+  label: string;
+  monthNumber: number;
+  monthName: string;
+  catchUpMonths: string[];
+  nextCycleStartYear: number | null;
+}
 
 function formatAmount(n: number) {
   return "₹" + n.toLocaleString("en-IN");
 }
 
-function getPlanEndDate(months: number) {
-  const d = new Date();
-  d.setMonth(d.getMonth() + months);
-  return d;
+function formatPoints(n: number) {
+  return n.toLocaleString("en-IN") + " points";
+}
+
+// Overdue = earlier months are unpaid, or this month is still unpaid after the 10th.
+function hasPendingOverdue(e: ChitPlan, now: Date) {
+  if (e.reviewStatus !== "active" || e.outstanding <= 0) return false;
+  const earlierUnpaid = e.outstanding > e.monthlyAmount + 0.001;
+  return earlierUnpaid || now.getDate() > 10;
 }
 
 export default function ChitsScreen() {
   const insets = useSafeAreaInsets();
   const { user, token } = useAuth();
-  const [myChits, setMyChits] = useState<MyChitEnrollment[]>([]);
+  const [myChits, setMyChits] = useState<ChitPlan[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [tab, setTab] = useState<"browse" | "mine">("browse");
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
-  const [duration, setDuration] = useState(3);
-  const [showDurationModal, setShowDurationModal] = useState(false);
+  const [chitText, setChitText] = useState("2");
+  const [cycle, setCycle] = useState<CycleInfo | null>(null);
   const [enrolling, setEnrolling] = useState(false);
   const [enrollError, setEnrollError] = useState("");
 
-  const [showCustomModal, setShowCustomModal] = useState(false);
-  const [customAmountText, setCustomAmountText] = useState("");
-  const [customError, setCustomError] = useState("");
-
-  const maxMonths = MAX_DURATION_MONTHS;
+  const chits = parseInt(chitText, 10) || 0;
+  const isValid = chits >= MIN_CHITS && chits <= MAX_CHITS;
+  const figures = chitPlanFigures(isValid ? chits : 0);
+  // One plan per customer per plan year (under review or approved). A rejected plan does not count.
+  const currentPlan = cycle
+    ? myChits.find((p) => p.cycleStartYear === cycle.startYear && p.reviewStatus !== "rejected")
+    : undefined;
+  const isLateJoin = !!cycle?.open && cycle.monthNumber > 1;
+  const catchUpMonths = cycle?.catchUpMonths ?? [];
+  const payNow = figures.monthly * (cycle?.open ? Math.max(1, cycle.monthNumber) : 1);
 
   const fetchMyChits = useCallback(async () => {
     if (!token) return;
@@ -87,37 +107,46 @@ export default function ChitsScreen() {
     } catch { /* ignore */ }
   }, [token]);
 
+  const fetchCycle = useCallback(async () => {
+    try {
+      const res = await fetch(`${getApiBase()}/chits/cycle`);
+      if (res.ok) setCycle(await res.json());
+    } catch { /* ignore */ }
+  }, []);
+
   useFocusEffect(useCallback(() => {
-    void fetchMyChits().finally(() => setIsLoading(false));
-  }, [fetchMyChits]));
+    void Promise.all([fetchMyChits(), fetchCycle()]).finally(() => setIsLoading(false));
+  }, [fetchMyChits, fetchCycle]));
 
-  const openDurationModal = (amount: number) => {
-    setSelectedAmount(amount);
-    setDuration(Math.min(3, maxMonths));
+  const setChits = (n: number) => {
     setEnrollError("");
-    setShowDurationModal(true);
+    setChitText(String(Math.min(MAX_CHITS, Math.max(MIN_CHITS, n))));
+  };
+
+  const onChangeText = (text: string) => {
+    setEnrollError("");
+    const digits = text.replace(/[^0-9]/g, "").slice(0, 3);
+    if (digits === "") { setChitText(""); return; }
+    setChitText(String(Math.min(MAX_CHITS, parseInt(digits, 10))));
+  };
+
+  const onBlurInput = () => {
+    if (!isValid) setChitText(String(MIN_CHITS));
+  };
+
+  const step = (delta: number) => {
     Haptics.selectionAsync();
+    setChits((isValid ? chits : 0) + delta);
   };
 
-  const handleCustomContinue = () => {
-    const v = parseFloat(customAmountText.replace(/,/g, ""));
-    if (isNaN(v) || v < 1000) {
-      setCustomError("Minimum amount is ₹1,000");
-      return;
-    }
-    setCustomError("");
-    setShowCustomModal(false);
-    setCustomAmountText("");
-    openDurationModal(v);
-  };
-
-  const handlePayEmi = async (enrollment: MyChitEnrollment) => {
+  // Opens the payment for everything currently pending on this plan.
+  const startPayment = async (chitPlanId: number) => {
     if (!user) { router.push("/auth"); return; }
     try {
       const res = await fetch(`${getApiBase()}/payment/create-chit-payment`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ enrollmentId: enrollment.id }),
+        body: JSON.stringify({ chitPlanId }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -134,8 +163,8 @@ export default function ChitsScreen() {
           currency: data.currency,
           keyId: data.keyId,
           name: "DollDime",
-          description: `EMI – ${data.planName}`,
-          enrollmentId: String(enrollment.id),
+          description: `Chit payment – ${data.planName}`,
+          chitPlanId: String(chitPlanId),
           type: "chit",
         },
       });
@@ -146,35 +175,32 @@ export default function ChitsScreen() {
 
   const handleEnroll = async () => {
     if (!user) { router.push("/auth"); return; }
-    if (!selectedAmount) return;
+    if (!isValid) return;
     setEnrolling(true);
     setEnrollError("");
     try {
       const res = await fetch(`${getApiBase()}/chits/enroll-custom`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ amount: selectedAmount, durationMonths: duration }),
+        body: JSON.stringify({ chits }),
       });
       if (!res.ok) {
         const err = await res.json();
-        setEnrollError(err.error || "Enrollment failed");
+        setEnrollError(err.error || "Could not submit your plan");
+        // Already have a plan this year (e.g. a double tap): show it instead of leaving an error.
+        if (err.code === "CHIT_PLAN_EXISTS") { await fetchMyChits(); setTab("mine"); }
         return;
       }
+      await res.json();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setShowDurationModal(false);
       await fetchMyChits();
-      setTab("mine");
+      setTab("mine"); // it now shows as "Under review" until the admin approves it
     } catch {
-      setEnrollError("Something went wrong");
+      setEnrollError("Something went wrong. Please try again.");
     } finally {
       setEnrolling(false);
     }
   };
-
-  const emi = selectedAmount ? selectedAmount / duration : 0;
-  const planEndDate = getPlanEndDate(duration);
-  const isOverDeadline = planEndDate > DEADLINE;
-  const endDateStr = planEndDate.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 
   if (isLoading) {
     return (
@@ -195,7 +221,7 @@ export default function ChitsScreen() {
           style={[styles.tab, tab === "browse" && styles.tabActive]}
           onPress={() => { setTab("browse"); Haptics.selectionAsync(); }}
         >
-          <Text style={[styles.tabText, tab === "browse" && styles.tabTextActive]}>Browse Plans</Text>
+          <Text style={[styles.tabText, tab === "browse" && styles.tabTextActive]}>New Plan</Text>
         </Pressable>
         <Pressable
           style={[styles.tab, tab === "mine" && styles.tabActive]}
@@ -208,50 +234,210 @@ export default function ChitsScreen() {
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 100 }]}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 100 }]}
+        keyboardShouldPersistTaps="handled"
+      >
         {tab === "browse" ? (
           <>
-            <View style={styles.infoBox}>
-              <View style={styles.infoTitle}>
-                <Ionicons name="information-circle-outline" size={16} color={Colors.light.tint} />
-                <Text style={styles.infoTitleText}>How Chit Plans Work</Text>
-              </View>
-              {[
-                "Choose a plan amount and duration",
-                "Pay monthly installments (EMI)",
-                "Each payment adds to your wallet",
-                "Complete all payments to get a discount reward",
-                "You can pay more than EMI to finish early",
-              ].map((line, i) => (
-                <Text key={i} style={styles.infoLine}>• {line}</Text>
-              ))}
+            <View style={styles.introCard}>
+              <Text style={styles.introTitle}>Save a little every month</Text>
+              <Text style={styles.introText}>
+                1 chit = {formatAmount(CHIT_VALUE)} a month. Pay for {CHIT_DURATION_MONTHS} months
+                (October to August) and earn {CHIT_BONUS_PERCENT}% extra as bonus points. 1 point = ₹1.
+              </Text>
             </View>
 
-            <Text style={styles.sectionLabel}>Select Chit Plan</Text>
+            {cycle && (
+              cycle.open ? (
+                <View style={styles.cycleBanner}>
+                  <Ionicons name="calendar-outline" size={18} color={Colors.light.tint} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cycleBannerTitle}>Current plan year: {cycle.label}</Text>
+                    <Text style={styles.cycleBannerText}>
+                      It is {cycle.monthName} — month {cycle.monthNumber} of {CHIT_DURATION_MONTHS}.
+                      {cycle.monthNumber === 1 ? " Best time to join!" : ""}
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.closedBox}>
+                  <Ionicons name="time-outline" size={22} color="#b45309" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.closedTitle}>Joining is closed for now</Text>
+                    <Text style={styles.closedText}>
+                      This year's plans ended in August. The next plan year starts in October {cycle.nextCycleStartYear}.
+                    </Text>
+                  </View>
+                </View>
+              )
+            )}
 
-            {PRESET_PLANS.map(({ amount, icon }) => (
-              <Pressable key={amount} style={styles.planRow} onPress={() => openDurationModal(amount)}>
-                <View style={styles.planIconBox}>
-                  <Ionicons name={icon} size={20} color={Colors.light.tint} />
+            {currentPlan ? (
+              <View style={styles.existingPlanCard}>
+                <Ionicons
+                  name={currentPlan.reviewStatus === "under_review" ? "hourglass-outline" : "checkmark-circle-outline"}
+                  size={26}
+                  color={currentPlan.reviewStatus === "under_review" ? "#b45309" : Colors.light.success}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.existingPlanTitle}>
+                    {currentPlan.reviewStatus === "under_review"
+                      ? "Your plan is under review"
+                      : "You already have a chit plan this year"}
+                  </Text>
+                  <Text style={styles.existingPlanText}>
+                    {currentPlan.name} · {currentPlan.cycleLabel}. Each customer can have one plan per plan year.
+                  </Text>
+                  <Pressable style={styles.existingPlanBtn} onPress={() => setTab("mine")}>
+                    <Text style={styles.existingPlanBtnText}>View My Chits</Text>
+                  </Pressable>
                 </View>
-                <View style={styles.planRowText}>
-                  <Text style={styles.planRowAmount}>{formatAmount(amount)}</Text>
-                  <Text style={styles.planRowSub}>Choose duration to calculate EMI</Text>
+              </View>
+            ) : (
+              <>
+            {/* Step 1 — choose number of chits */}
+              <View style={styles.card}>
+                <Text style={styles.stepLabel}>STEP 1</Text>
+                <Text style={styles.cardTitle}>How many chits do you want?</Text>
+  
+                <View style={styles.stepperRow}>
+                  <Pressable
+                    accessibilityLabel="Decrease chits"
+                    style={[styles.stepBtn, chits <= MIN_CHITS && styles.stepBtnDisabled]}
+                    onPress={() => step(-1)}
+                    disabled={chits <= MIN_CHITS}
+                  >
+                    <Ionicons name="remove" size={28} color={chits <= MIN_CHITS ? Colors.light.borderStrong : Colors.light.tint} />
+                  </Pressable>
+  
+                  <View style={styles.countBox}>
+                    <TextInput
+                      accessibilityLabel="Number of chits"
+                      style={styles.countInput}
+                      value={chitText}
+                      onChangeText={onChangeText}
+                      onBlur={onBlurInput}
+                      keyboardType="number-pad"
+                      maxLength={3}
+                      selectTextOnFocus
+                    />
+                    <Text style={styles.countUnit}>{chits === 1 ? "chit" : "chits"}</Text>
+                  </View>
+  
+                  <Pressable
+                    accessibilityLabel="Increase chits"
+                    style={[styles.stepBtn, chits >= MAX_CHITS && styles.stepBtnDisabled]}
+                    onPress={() => step(1)}
+                    disabled={chits >= MAX_CHITS}
+                  >
+                    <Ionicons name="add" size={28} color={chits >= MAX_CHITS ? Colors.light.borderStrong : Colors.light.tint} />
+                  </Pressable>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={Colors.light.borderStrong} />
+  
+                <View style={styles.quickRow}>
+                  {QUICK_PICK_CHITS.map(n => (
+                    <Pressable
+                      key={n}
+                      style={[styles.quickChip, chits === n && styles.quickChipActive]}
+                      onPress={() => { Haptics.selectionAsync(); setChits(n); }}
+                    >
+                      <Text style={[styles.quickChipText, chits === n && styles.quickChipTextActive]}>{n}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+  
+                <Text style={styles.totalLine}>
+                  {isValid
+                    ? `${chits} × ${formatAmount(CHIT_VALUE)} = ${formatAmount(figures.monthly)} per month`
+                    : `Choose between ${MIN_CHITS} and ${MAX_CHITS} chits`}
+                </Text>
+              </View>
+  
+              {/* Step 2 — what you pay and get */}
+              <View style={styles.card}>
+                <Text style={styles.stepLabel}>STEP 2</Text>
+                <Text style={styles.cardTitle}>Your plan at a glance</Text>
+  
+                <View style={styles.monthlyBox}>
+                  <Text style={styles.monthlyLabel}>You pay every month</Text>
+                  <Text style={styles.monthlyAmount}>{formatAmount(figures.monthly)}</Text>
+                  <Text style={styles.monthlySub}>for {CHIT_DURATION_MONTHS} months</Text>
+                </View>
+  
+                {isLateJoin && isValid && (
+                  <View style={styles.catchUpBox}>
+                    <View style={styles.catchUpHeader}>
+                      <Ionicons name="alert-circle-outline" size={18} color="#b45309" />
+                      <Text style={styles.catchUpTitle}>Joining late? Catch up to start</Text>
+                    </View>
+                    <Text style={styles.catchUpText}>
+                      The plan year started in October, so you pay for the {catchUpMonths.length} months
+                      already passed ({catchUpMonths[0]} to {catchUpMonths[catchUpMonths.length - 1]}) once your plan is approved.
+                    </Text>
+                    <View style={styles.catchUpMath}>
+                      <Text style={styles.catchUpMathText}>
+                        {catchUpMonths.length} months × {formatAmount(figures.monthly)}
+                      </Text>
+                      <Text style={styles.catchUpAmount}>{formatAmount(payNow)}</Text>
+                    </View>
+                    <Text style={styles.catchUpFoot}>
+                      You pay this after approval. After that, {formatAmount(figures.monthly)} every month until August.
+                      You still pay the same {formatAmount(figures.total)} in total and earn the full bonus.
+                    </Text>
+                  </View>
+                )}
+  
+                <View style={styles.summaryRow}>
+                  <View style={styles.summaryTextWrap}>
+                    <Text style={styles.summaryLabel}>Total you pay in {CHIT_DURATION_MONTHS} months</Text>
+                    <Text style={styles.summaryHint}>{formatAmount(figures.monthly)} × {CHIT_DURATION_MONTHS}</Text>
+                  </View>
+                  <Text style={styles.summaryValue}>{formatAmount(figures.total)}</Text>
+                </View>
+  
+                <View style={styles.summaryRow}>
+                  <View style={styles.summaryTextWrap}>
+                    <Text style={styles.summaryLabel}>Bonus points you earn</Text>
+                    <Text style={styles.summaryHint}>{CHIT_BONUS_PERCENT}% of {formatAmount(figures.total)}</Text>
+                  </View>
+                  <Text style={[styles.summaryValue, styles.bonusValue]}>+ {figures.bonusPoints.toLocaleString("en-IN")}</Text>
+                </View>
+  
+                <View style={styles.divider} />
+  
+                <View style={styles.finalBox}>
+                  <Text style={styles.finalLabel}>Total value you receive</Text>
+                  <Text style={styles.finalAmount}>{formatAmount(figures.finalValue)}</Text>
+                  <Text style={styles.finalSub}>
+                    {formatAmount(figures.total)} paid + {formatPoints(figures.bonusPoints)}
+                  </Text>
+                </View>
+              </View>
+  
+              {enrollError ? <Text style={styles.errorNote}>{enrollError}</Text> : null}
+  
+              <Pressable
+                style={[styles.startBtn, (!isValid || enrolling || !cycle?.open) && { opacity: 0.5 }]}
+                onPress={handleEnroll}
+                disabled={!isValid || enrolling || !cycle?.open}
+              >
+                {enrolling ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.startBtnText}>
+                    {!isValid
+                      ? "Submit Plan for Approval"
+                      : "Submit Plan for Approval"}
+                  </Text>
+                )}
               </Pressable>
-            ))}
-
-            <Pressable style={styles.customPlanRow} onPress={() => { setCustomError(""); setCustomAmountText(""); setShowCustomModal(true); Haptics.selectionAsync(); }}>
-              <View style={styles.customIconBox}>
-                <Ionicons name="options-outline" size={20} color={Colors.light.tint} />
-              </View>
-              <View style={styles.planRowText}>
-                <Text style={styles.customPlanAmount}>Custom Amount</Text>
-                <Text style={styles.planRowSub}>Set your own savings goal</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={Colors.light.borderStrong} />
-            </Pressable>
+              <Text style={styles.finePrint}>
+                Your plan is reviewed first and you can pay once it is approved. Pay each month's amount by the 10th.
+                Your chit money stays locked in your wallet until the plan completes in August, then it is released with your {CHIT_BONUS_PERCENT}% bonus points.
+              </Text>
+              </>
+            )}
           </>
         ) : (
           !user ? (
@@ -268,21 +454,77 @@ export default function ChitsScreen() {
               <Text style={styles.emptyText}>No active chits</Text>
               <Text style={styles.emptySubtext}>Start saving with a chit plan</Text>
               <Pressable style={styles.actionBtn} onPress={() => setTab("browse")}>
-                <Text style={styles.actionBtnText}>Browse Plans</Text>
+                <Text style={styles.actionBtnText}>Create a Plan</Text>
               </Pressable>
             </View>
           ) : (
             myChits.map(e => {
+              if (e.reviewStatus === "under_review") {
+                return (
+                  <View key={e.id} style={[styles.myChitCard, styles.myChitCardReview]}>
+                    <View style={styles.myChitHeader}>
+                      <Text style={styles.myChitName}>{e.name}</Text>
+                      <View style={[styles.statusPill, { backgroundColor: "#FFFBEB" }]}>
+                        <Text style={[styles.statusText, { color: "#b45309" }]}>Under review</Text>
+                      </View>
+                    </View>
+                    <View style={styles.pendingRow}>
+                      <Ionicons name="hourglass-outline" size={16} color="#b45309" />
+                      <Text style={styles.pendingText}>
+                        Your plan has been sent for approval. We will message you on WhatsApp as soon as it is
+                        approved. You can start paying after that.
+                      </Text>
+                    </View>
+                    <View style={styles.myChitStats}>
+                      <View style={styles.myStatItem}>
+                        <Text style={styles.myStatLabel}>Per month</Text>
+                        <Text style={styles.myStatValue}>{formatAmount(e.monthlyAmount)}</Text>
+                      </View>
+                      <View style={styles.myStatItem}>
+                        <Text style={styles.myStatLabel}>Total</Text>
+                        <Text style={styles.myStatValue}>{formatAmount(e.totalAmount)}</Text>
+                      </View>
+                      <View style={styles.myStatItem}>
+                        <Text style={styles.myStatLabel}>Bonus</Text>
+                        <Text style={styles.myStatValue}>+{e.bonusPoints.toLocaleString("en-IN")}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.cardFoot}>Plan year {e.cycleLabel}</Text>
+                  </View>
+                );
+              }
+
+              if (e.reviewStatus === "rejected") {
+                return (
+                  <View key={e.id} style={[styles.myChitCard, styles.myChitCardOverdue]}>
+                    <View style={styles.myChitHeader}>
+                      <Text style={styles.myChitName}>{e.name}</Text>
+                      <View style={[styles.statusPill, { backgroundColor: Colors.light.dangerLight }]}>
+                        <Text style={[styles.statusText, { color: Colors.light.error }]}>Not approved</Text>
+                      </View>
+                    </View>
+                    <View style={styles.overdueRow}>
+                      <Ionicons name="close-circle" size={16} color={Colors.light.error} />
+                      <Text style={styles.overdueText}>
+                        {e.rejectionReason ? `Reason: ${e.rejectionReason}` : "This plan could not be approved."}
+                      </Text>
+                    </View>
+                    <Pressable style={styles.actionBtn} onPress={() => setTab("browse")}>
+                      <Text style={styles.actionBtnText}>Create a New Plan</Text>
+                    </Pressable>
+                  </View>
+                );
+              }
+
               const now = new Date();
               const nextDate = e.nextPaymentDate ? new Date(e.nextPaymentDate) : null;
-              const isCompleted = e.status === "completed" || e.amountPaid >= e.chitPlan.totalAmount;
-              const isOverdue = !isCompleted && nextDate !== null && nextDate < now;
-              const monthsCompleted = e.chitPlan.monthlyContribution > 0
-                ? Math.min(e.chitPlan.duration, Math.round(e.amountPaid / e.chitPlan.monthlyContribution))
+              const isCompleted = e.reviewStatus === "completed";
+              const hasPending = !isCompleted && e.outstanding > 0;
+              const earlierMonths = hasPending
+                ? Math.max(0, Math.ceil(e.outstanding / e.monthlyAmount - 1e-9) - 1)
                 : 0;
-              const progress = e.chitPlan.totalAmount > 0
-                ? Math.min(100, Math.round((e.amountPaid / e.chitPlan.totalAmount) * 100))
-                : 0;
+              const isOverdue = hasPendingOverdue(e, now);
+              const progress = e.totalAmount > 0 ? Math.min(100, Math.round((e.amountPaid / e.totalAmount) * 100)) : 0;
               const pillBg = isCompleted ? "#E8F0FF" : isOverdue ? Colors.light.dangerLight : Colors.light.tintLight;
               const pillColor = isCompleted ? "#2563eb" : isOverdue ? Colors.light.error : Colors.light.success;
               const pillLabel = isCompleted ? "Completed" : isOverdue ? "Overdue" : "Active";
@@ -291,7 +533,7 @@ export default function ChitsScreen() {
               return (
               <View key={e.id} style={[styles.myChitCard, isOverdue && styles.myChitCardOverdue, isCompleted && styles.myChitCardCompleted]}>
                 <View style={styles.myChitHeader}>
-                  <Text style={styles.myChitName}>{e.chitPlan.name}</Text>
+                  <Text style={styles.myChitName}>{e.name}</Text>
                   <View style={[styles.statusPill, { backgroundColor: pillBg }]}>
                     <Text style={[styles.statusText, { color: pillColor }]}>{pillLabel}</Text>
                   </View>
@@ -301,17 +543,17 @@ export default function ChitsScreen() {
                   <View style={styles.progressBarBg}>
                     <View style={[styles.progressBarFill, { width: `${progress}%` as any, backgroundColor: progressColor }]} />
                   </View>
-                  <Text style={styles.progressText}>{monthsCompleted}/{e.chitPlan.duration} mo · {progress}%</Text>
+                  <Text style={styles.progressText}>{e.monthsPaid}/{e.durationMonths} mo · {progress}%</Text>
                 </View>
 
                 <View style={styles.myChitStats}>
                   <View style={styles.myStatItem}>
                     <Text style={styles.myStatLabel}>Total</Text>
-                    <Text style={styles.myStatValue}>{formatAmount(e.chitPlan.totalAmount)}</Text>
+                    <Text style={styles.myStatValue}>{formatAmount(e.totalAmount)}</Text>
                   </View>
                   <View style={styles.myStatItem}>
-                    <Text style={styles.myStatLabel}>Monthly EMI</Text>
-                    <Text style={styles.myStatValue}>{formatAmount(Math.round(e.chitPlan.monthlyContribution))}</Text>
+                    <Text style={styles.myStatLabel}>Per month</Text>
+                    <Text style={styles.myStatValue}>{formatAmount(e.monthlyAmount)}</Text>
                   </View>
                   <View style={styles.myStatItem}>
                     <Text style={styles.myStatLabel}>Paid</Text>
@@ -319,20 +561,45 @@ export default function ChitsScreen() {
                   </View>
                 </View>
 
-                {isOverdue && nextDate && (
-                  <View style={styles.overdueRow}>
-                    <Ionicons name="alert-circle" size={14} color={Colors.light.error} />
-                    <Text style={styles.overdueText}>
-                      Payment was due {nextDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} — please pay now
+                <View style={styles.bonusRow}>
+                  <Ionicons name="gift-outline" size={15} color={Colors.light.tint} />
+                  <Text style={styles.bonusRowText}>
+                    {isCompleted
+                      ? `${formatPoints(e.bonusPoints)} bonus added to your wallet`
+                      : `${formatPoints(e.bonusPoints)} bonus when you finish all ${e.durationMonths} payments`}
+                  </Text>
+                </View>
+
+                {hasPending && (
+                  <View style={isOverdue ? styles.overdueRow : styles.pendingRow}>
+                    <Ionicons
+                      name={isOverdue ? "alert-circle" : "time-outline"}
+                      size={16}
+                      color={isOverdue ? Colors.light.error : "#b45309"}
+                    />
+                    <Text style={isOverdue ? styles.overdueText : styles.pendingText}>
+                      {formatAmount(e.outstanding)} pending
+                      {e.currentMonthName ? ` for ${e.currentMonthName}` : ""}
+                      {earlierMonths > 0 ? ` (includes ${earlierMonths} earlier month${earlierMonths === 1 ? "" : "s"})` : ""}
+                      {e.amountPaid > 0 && e.outstanding < e.monthlyAmount ? " — part payment received, please pay the rest" : ""}
                     </Text>
                   </View>
                 )}
 
-                {!isOverdue && !isCompleted && nextDate && (
+                {!hasPending && !isCompleted && (
+                  <View style={styles.paidUpRow}>
+                    <Ionicons name="checkmark-circle" size={14} color={Colors.light.success} />
+                    <Text style={styles.paidUpText}>
+                      You are paid up{e.currentMonthName ? ` for ${e.currentMonthName}` : ""}
+                    </Text>
+                  </View>
+                )}
+
+                {!hasPending && !isCompleted && nextDate && (
                   <View style={styles.nextPaymentRow}>
                     <Ionicons name="calendar-outline" size={14} color={Colors.light.textMuted} />
                     <Text style={styles.nextPaymentText}>
-                      Next payment: {nextDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                      Next payment opens {nextDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
                     </Text>
                   </View>
                 )}
@@ -344,12 +611,10 @@ export default function ChitsScreen() {
                   </View>
                 )}
 
-                {!isCompleted && (
-                  <Pressable style={[styles.payEmiBtn, isOverdue && styles.payEmiBtnOverdue]} onPress={() => handlePayEmi(e)}>
+                {hasPending && (
+                  <Pressable style={[styles.payEmiBtn, isOverdue && styles.payEmiBtnOverdue]} onPress={() => startPayment(e.id)}>
                     <Ionicons name={isOverdue ? "alert-circle" : "lock-closed"} size={16} color="#fff" />
-                    <Text style={styles.payEmiBtnText}>
-                      {isOverdue ? "Pay Overdue EMI – " : "Pay EMI – "}{formatAmount(Math.round(e.chitPlan.monthlyContribution))}
-                    </Text>
+                    <Text style={styles.payEmiBtnText}>Pay Pending – {formatAmount(e.outstanding)}</Text>
                   </Pressable>
                 )}
               </View>
@@ -358,105 +623,6 @@ export default function ChitsScreen() {
           )
         )}
       </ScrollView>
-
-      <Modal visible={showCustomModal} transparent animationType="fade">
-        <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowCustomModal(false)} />
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Custom Amount</Text>
-            <View style={styles.inputWrap}>
-              <TextInput
-                style={styles.amountInput}
-                value={customAmountText}
-                onChangeText={setCustomAmountText}
-                placeholder="Amount (₹)"
-                placeholderTextColor={Colors.light.textMuted}
-                keyboardType="numeric"
-                autoFocus
-              />
-            </View>
-            <Text style={styles.minNote}>Minimum: ₹1,000</Text>
-            {customError ? <Text style={styles.errorNote}>{customError}</Text> : null}
-            <View style={styles.modalBtns}>
-              <Pressable style={styles.modalCancelBtn} onPress={() => setShowCustomModal(false)}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable style={styles.modalConfirmBtn} onPress={handleCustomContinue}>
-                <Text style={styles.modalConfirmText}>Continue</Text>
-              </Pressable>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      <Modal visible={showDurationModal} transparent animationType="fade">
-        <View style={styles.overlay}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => !enrolling && setShowDurationModal(false)} />
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Select Duration</Text>
-            <Text style={styles.modalAmountLabel}>
-              Amount: {selectedAmount ? formatAmount(selectedAmount) + ".00" : ""}
-            </Text>
-
-            <Text style={styles.durationLabel}>Duration (months):</Text>
-            <Slider
-              accessibilityLabel="Duration in months"
-              testID="chit-duration-slider"
-              style={styles.slider}
-              minimumValue={1}
-              maximumValue={maxMonths}
-              step={1}
-              value={duration}
-              onValueChange={(v) => setDuration(Math.round(v))}
-              minimumTrackTintColor={Colors.light.tint}
-              maximumTrackTintColor={Colors.light.border}
-              thumbTintColor={Colors.light.tint}
-              disabled={enrolling}
-            />
-            <Text style={styles.durationValue}>{duration} month{duration !== 1 ? "s" : ""}</Text>
-
-            <View style={styles.emiBox}>
-              <View style={styles.emiTitleRow}>
-                <Ionicons name="information-circle-outline" size={15} color={Colors.light.tint} />
-                <Text style={styles.emiTitle}>Monthly EMI</Text>
-              </View>
-              <Text style={styles.emiAmount}>{formatAmount(Math.round(emi))}</Text>
-            </View>
-
-            <View style={[styles.deadlineBox, isOverDeadline && styles.deadlineBoxError]}>
-              <Ionicons
-                name={isOverDeadline ? "alert-circle-outline" : "warning-outline"}
-                size={15}
-                color={isOverDeadline ? Colors.light.error : "#b45309"}
-              />
-              <Text style={[styles.deadlineText, isOverDeadline && styles.deadlineTextError]}>
-                {isOverDeadline
-                  ? `Plan ends ${endDateStr}, which is after October 2026`
-                  : `Plan must end before October 2026`}
-              </Text>
-            </View>
-
-            {enrollError ? <Text style={styles.errorNote}>{enrollError}</Text> : null}
-
-            <View style={styles.modalBtns}>
-              <Pressable style={styles.modalCancelBtn} onPress={() => setShowDurationModal(false)} disabled={enrolling}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.modalConfirmBtn, (enrolling || isOverDeadline) && { opacity: 0.6 }]}
-                onPress={handleEnroll}
-                disabled={enrolling || isOverDeadline}
-              >
-                {enrolling ? (
-                  <ActivityIndicator size="small" color={Colors.light.tint} />
-                ) : (
-                  <Text style={styles.modalConfirmText}>Enroll</Text>
-                )}
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -476,42 +642,85 @@ const styles = StyleSheet.create({
   tabTextActive: { color: Colors.light.text, fontWeight: "500" },
   badge: { backgroundColor: Colors.light.tint, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1, minWidth: 20, alignItems: "center" },
   badgeText: { color: "#fff", fontSize: 9 },
-  content: { paddingHorizontal: 16, gap: 12 },
-  infoBox: {
-    backgroundColor: Colors.light.tintLight, borderRadius: 12, padding: 12, gap: 6,
+  content: { paddingHorizontal: 16, gap: 14 },
+
+  introCard: {
+    backgroundColor: Colors.light.tintLight, borderRadius: 14, padding: 14, gap: 4,
     borderLeftWidth: 3, borderLeftColor: Colors.light.tint,
   },
-  infoTitle: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
-  infoTitleText: { fontSize: 11, fontWeight: "600", color: Colors.light.tint },
-  infoLine: { fontSize: 10, color: "#3B6D11", lineHeight: 17 },
-  sectionLabel: { fontSize: 16, fontWeight: "600", color: Colors.light.text, marginTop: 4 },
-  planRow: {
-    flexDirection: "row", alignItems: "center", gap: 14,
-    backgroundColor: Colors.light.surface, borderRadius: 14, padding: 12,
+  introTitle: { fontSize: 15, fontWeight: "700", color: Colors.light.tint },
+  introText: { fontSize: 13, color: "#3B6D11", lineHeight: 19 },
+
+  card: {
+    backgroundColor: Colors.light.surface, borderRadius: 18, padding: 18, gap: 12,
     borderWidth: 1, borderColor: Colors.light.border,
   },
-  planIconBox: {
-    width: 32, height: 32, borderRadius: 8,
-    backgroundColor: Colors.light.tintLight, alignItems: "center", justifyContent: "center",
+  stepLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 1, color: Colors.light.textMuted },
+  cardTitle: { fontSize: 17, fontWeight: "700", color: Colors.light.text, marginTop: -6 },
+
+  stepperRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 4 },
+  stepBtn: {
+    width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center",
+    backgroundColor: Colors.light.tintLight, borderWidth: 1.5, borderColor: Colors.light.tint,
   },
-  planRowText: { flex: 1 },
-  planRowAmount: { fontSize: 15, fontWeight: "600", color: Colors.light.text },
-  planRowSub: { fontSize: 9, color: Colors.light.textMuted, marginTop: 2 },
-  customPlanRow: {
-    flexDirection: "row", alignItems: "center", gap: 14,
-    backgroundColor: "#F6FBF7", borderRadius: 14, padding: 12,
-    borderWidth: 1.5, borderColor: Colors.light.tint, borderStyle: "dashed",
+  stepBtnDisabled: { backgroundColor: Colors.light.background, borderColor: Colors.light.border },
+  countBox: {
+    flex: 1, alignItems: "center", paddingVertical: 8,
+    borderWidth: 1.5, borderColor: Colors.light.border, borderRadius: 14,
+    backgroundColor: Colors.light.background,
   },
-  customIconBox: {
-    width: 32, height: 32, borderRadius: 8,
-    backgroundColor: "#C0DDB6", alignItems: "center", justifyContent: "center",
+  countInput: {
+    fontSize: 36, fontWeight: "700", color: Colors.light.text, textAlign: "center",
+    minWidth: 90, padding: 0,
   },
-  customPlanAmount: { fontSize: 15, fontWeight: "600", color: Colors.light.tint },
+  countUnit: { fontSize: 12, color: Colors.light.textMuted, marginTop: -2 },
+
+  quickRow: { flexDirection: "row", justifyContent: "center", gap: 10 },
+  quickChip: {
+    minWidth: 52, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, alignItems: "center",
+    borderWidth: 1, borderColor: Colors.light.border, backgroundColor: Colors.light.surface,
+  },
+  quickChipActive: { backgroundColor: Colors.light.tint, borderColor: Colors.light.tint },
+  quickChipText: { fontSize: 14, fontWeight: "600", color: Colors.light.textSecondary },
+  quickChipTextActive: { color: "#fff" },
+  totalLine: { fontSize: 14, color: Colors.light.textSecondary, textAlign: "center", fontWeight: "500" },
+
+  monthlyBox: {
+    backgroundColor: Colors.light.tintLight, borderRadius: 14, padding: 16, alignItems: "center", gap: 2,
+  },
+  monthlyLabel: { fontSize: 13, fontWeight: "600", color: Colors.light.tint },
+  monthlyAmount: { fontSize: 34, fontWeight: "800", color: Colors.light.tint },
+  monthlySub: { fontSize: 13, color: "#3B6D11" },
+
+  summaryRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  summaryTextWrap: { flex: 1 },
+  summaryLabel: { fontSize: 14, fontWeight: "600", color: Colors.light.text },
+  summaryHint: { fontSize: 12, color: Colors.light.textMuted, marginTop: 1 },
+  summaryValue: { fontSize: 18, fontWeight: "700", color: Colors.light.text },
+  bonusValue: { color: Colors.light.success },
+  divider: { height: 1, backgroundColor: Colors.light.border },
+
+  finalBox: {
+    backgroundColor: "#1A1A1A", borderRadius: 14, padding: 16, alignItems: "center", gap: 2,
+  },
+  finalLabel: { fontSize: 13, color: "#D8D4CE", fontWeight: "500" },
+  finalAmount: { fontSize: 32, fontWeight: "800", color: "#fff" },
+  finalSub: { fontSize: 12, color: "#D8D4CE" },
+
+  errorNote: { fontSize: 13, color: Colors.light.error, textAlign: "center" },
+  startBtn: {
+    backgroundColor: Colors.light.tint, borderRadius: 14, paddingVertical: 16,
+    alignItems: "center", justifyContent: "center",
+  },
+  startBtnText: { fontSize: 16, fontWeight: "700", color: "#fff" },
+  finePrint: { fontSize: 12, color: Colors.light.textMuted, textAlign: "center", lineHeight: 17 },
+
   empty: { alignItems: "center", justifyContent: "center", paddingVertical: 80, gap: 12 },
   emptyText: { fontSize: 18, fontWeight: "600", color: Colors.light.text },
   emptySubtext: { fontSize: 13, color: Colors.light.textMuted, textAlign: "center" },
   actionBtn: { backgroundColor: "#1A1A1A", borderRadius: 24, paddingHorizontal: 28, paddingVertical: 12, marginTop: 4 },
   actionBtnText: { fontSize: 13, fontWeight: "500", color: Colors.light.cream },
+
   myChitCard: {
     backgroundColor: Colors.light.surface, borderRadius: 16, padding: 16, gap: 12,
     borderWidth: 1, borderColor: Colors.light.border,
@@ -524,6 +733,11 @@ const styles = StyleSheet.create({
   myStatItem: { alignItems: "center" },
   myStatLabel: { fontSize: 11, color: Colors.light.textMuted },
   myStatValue: { fontSize: 14, fontWeight: "600", color: Colors.light.text },
+  bonusRow: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: Colors.light.tintLight, borderRadius: 8, padding: 8,
+  },
+  bonusRowText: { fontSize: 12, color: Colors.light.tint, flex: 1, fontWeight: "500" },
   nextPaymentRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   nextPaymentText: { fontSize: 12, color: Colors.light.textMuted },
   payEmiBtn: {
@@ -544,49 +758,56 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "#FCCFC9",
   },
   overdueText: { fontSize: 12, color: Colors.light.error, flex: 1, lineHeight: 17 },
-  completedRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  completedText: { fontSize: 12, color: "#2563eb" },
-  overlay: {
-    flex: 1, backgroundColor: "rgba(26,26,26,0.5)",
-    alignItems: "center", justifyContent: "center", padding: 24,
+  myChitCardReview: { borderWidth: 1.5, borderColor: "#FCD34D" },
+  cardFoot: { fontSize: 11, color: Colors.light.textMuted },
+  existingPlanCard: {
+    flexDirection: "row", alignItems: "flex-start", gap: 12,
+    backgroundColor: Colors.light.surface, borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: Colors.light.border,
   },
-  modalCard: {
-    backgroundColor: Colors.light.surface, borderRadius: 20, padding: 24,
-    width: "100%", maxWidth: 360, gap: 12,
+  existingPlanTitle: { fontSize: 15, fontWeight: "700", color: Colors.light.text },
+  existingPlanText: { fontSize: 13, color: Colors.light.textSecondary, marginTop: 3, lineHeight: 19 },
+  existingPlanBtn: {
+    alignSelf: "flex-start", marginTop: 10, backgroundColor: "#1A1A1A",
+    borderRadius: 20, paddingHorizontal: 18, paddingVertical: 9,
   },
-  modalTitle: { fontSize: 18, fontWeight: "700", color: Colors.light.text },
-  modalAmountLabel: { fontSize: 14, color: Colors.light.textSecondary },
-  inputWrap: {
-    borderWidth: 1.5, borderColor: Colors.light.border, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 12,
-  },
-  amountInput: { fontSize: 16, color: Colors.light.text },
-  minNote: { fontSize: 12, color: Colors.light.textMuted, textAlign: "center" },
-  errorNote: { fontSize: 13, color: Colors.light.error, textAlign: "center" },
-  durationLabel: { fontSize: 13, color: Colors.light.textSecondary },
-  slider: { width: "100%", height: 40 },
-  durationValue: { fontSize: 20, fontWeight: "600", color: Colors.light.text },
-  emiBox: {
-    backgroundColor: Colors.light.tintLight, borderRadius: 12, padding: 12, gap: 4,
-    borderLeftWidth: 3, borderLeftColor: Colors.light.tint,
-  },
-  emiTitleRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  emiTitle: { fontSize: 13, fontWeight: "600", color: Colors.light.tint },
-  emiAmount: { fontSize: 24, fontWeight: "700", color: Colors.light.tint },
-  deadlineBox: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: "#FFFBEB", borderRadius: 10, padding: 10,
+  existingPlanBtnText: { fontSize: 13, fontWeight: "500", color: Colors.light.cream },
+  pendingRow: {
+    flexDirection: "row", alignItems: "flex-start", gap: 6,
+    backgroundColor: "#FFFBEB", borderRadius: 8, padding: 8,
     borderWidth: 1, borderColor: "#FDE68A",
   },
-  deadlineBoxError: { backgroundColor: Colors.light.dangerLight, borderColor: "#FCCFC9" },
-  deadlineText: { fontSize: 12, color: "#b45309", flex: 1 },
-  deadlineTextError: { color: Colors.light.error },
-  modalBtns: { flexDirection: "row", gap: 12, marginTop: 4 },
-  modalCancelBtn: { flex: 1, paddingVertical: 14, alignItems: "center", borderRadius: 10 },
-  modalCancelText: { fontSize: 16, color: Colors.light.textSecondary },
-  modalConfirmBtn: {
-    flex: 1, paddingVertical: 14, alignItems: "center", borderRadius: 10,
-    backgroundColor: "#1A1A1A",
+  pendingText: { fontSize: 12, color: "#b45309", flex: 1, lineHeight: 17 },
+  paidUpRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  paidUpText: { fontSize: 12, color: Colors.light.success, fontWeight: "500" },
+  cycleBanner: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: Colors.light.surface, borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: Colors.light.border,
   },
-  modalConfirmText: { fontSize: 16, fontWeight: "500", color: Colors.light.cream },
+  cycleBannerTitle: { fontSize: 14, fontWeight: "700", color: Colors.light.text },
+  cycleBannerText: { fontSize: 13, color: Colors.light.textSecondary, marginTop: 2 },
+  closedBox: {
+    flexDirection: "row", alignItems: "flex-start", gap: 10,
+    backgroundColor: "#FFFBEB", borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: "#FDE68A",
+  },
+  closedTitle: { fontSize: 15, fontWeight: "700", color: "#92400e" },
+  closedText: { fontSize: 13, color: "#b45309", marginTop: 2, lineHeight: 19 },
+  catchUpBox: {
+    backgroundColor: "#FFFBEB", borderRadius: 14, padding: 14, gap: 8,
+    borderWidth: 1.5, borderColor: "#FCD34D",
+  },
+  catchUpHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  catchUpTitle: { fontSize: 15, fontWeight: "700", color: "#92400e" },
+  catchUpText: { fontSize: 13, color: "#92400e", lineHeight: 19 },
+  catchUpMath: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    backgroundColor: "#fff", borderRadius: 10, padding: 12,
+  },
+  catchUpMathText: { fontSize: 14, color: Colors.light.textSecondary, fontWeight: "500" },
+  catchUpAmount: { fontSize: 22, fontWeight: "800", color: "#92400e" },
+  catchUpFoot: { fontSize: 12, color: "#b45309", lineHeight: 17 },
+  completedRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  completedText: { fontSize: 12, color: "#2563eb" },
 });

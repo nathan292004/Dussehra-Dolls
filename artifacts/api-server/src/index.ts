@@ -1,6 +1,11 @@
 import app from "./app";
 import { pool } from "@workspace/db";
 import { startChitReminderScheduler } from "./lib/chit-reminder-scheduler";
+import { assertAuthConfigured } from "./lib/jwt";
+import { startCheckoutSweeper } from "./lib/order-payments";
+import { razorpay } from "./lib/razorpay";
+
+assertAuthConfigured();
 
 const rawPort = process.env["PORT"];
 
@@ -42,7 +47,13 @@ async function start() {
 
   const server = app.listen(port, () => {
     console.log(`Server listening on port ${port}`);
-    startChitReminderScheduler();
+    // Background jobs (reminders, releasing abandoned checkouts) run here by default. In production
+    // run them in the separate worker instead (`start:worker`) and set RUN_BACKGROUND_JOBS=false
+    // on the web servers, so scaling the web servers up never means duplicate work.
+    if (process.env.RUN_BACKGROUND_JOBS !== "false") {
+      startChitReminderScheduler();
+      startCheckoutSweeper(razorpay);
+    }
   });
 
   // ─── Graceful shutdown ──────────────────────────────

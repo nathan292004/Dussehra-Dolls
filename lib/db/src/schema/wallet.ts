@@ -1,28 +1,28 @@
-import { pgTable, serial, integer, text, numeric, timestamp } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod/v4";
+import { pgTable, serial, text, numeric, timestamp, index, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { usersTable } from "./users";
 
 export const walletsTable = pgTable("wallets", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().unique().references(() => usersTable.id),
+  userId: text("user_id").notNull().unique().references(() => usersTable.userId),
   balance: numeric("balance", { precision: 10, scale: 2 }).default("0").notNull(),
+  // Money paid into chit plans. Not spendable until the plan completes (then it moves to balance).
+  chitLockedBalance: numeric("chit_locked_balance", { precision: 10, scale: 2 }).default("0").notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => [
+  // A wallet can never go below zero, whatever the application does.
+  check("wallets_balance_not_negative", sql`${t.balance} >= 0 AND ${t.chitLockedBalance} >= 0`),
+]);
 
 export const transactionsTable = pgTable("transactions", {
   razorpayPaymentId: text("razorpay_payment_id").unique(),
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => usersTable.id),
+  userId: text("user_id").notNull().references(() => usersTable.userId),
   type: text("type").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
   description: text("description").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [index("transactions_user_idx").on(t.userId, t.createdAt)]);
 
-export const insertWalletSchema = createInsertSchema(walletsTable).omit({ id: true, updatedAt: true });
-export const insertTransactionSchema = createInsertSchema(transactionsTable).omit({ id: true, createdAt: true });
-export type InsertWallet = z.infer<typeof insertWalletSchema>;
 export type Wallet = typeof walletsTable.$inferSelect;
-export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
 export type Transaction = typeof transactionsTable.$inferSelect;

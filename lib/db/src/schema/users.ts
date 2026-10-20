@@ -1,17 +1,32 @@
-import { pgTable, serial, text, timestamp, boolean } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod/v4";
+import { pgTable, serial, text, timestamp, boolean, integer, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const usersTable = pgTable("users", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  phone: text("phone"),
+  // Public, permanent id like "user_191026kQzTb" (see lib/user-id in the API). Every other table links to this.
+  userId: text("user_id").primaryKey(),
+  // Running number in order of registration (1, 2, 3 ...), handy for the admin and for support.
+  index: serial("index").notNull().unique(),
+  fname: text("fname").notNull(),
+  lname: text("lname"),
+  // Customers sign up with a phone number only. There is no email.
+  phone: text("phone").notNull(),
+  address: text("address"),
+  registeredAt: timestamp("registered_at").defaultNow().notNull(),
+  isReseller: boolean("is_reseller").default(false).notNull(),
+  resellerCode: text("reseller_code").unique(),
   passwordHash: text("password_hash").notNull(),
   isActive: boolean("is_active").default(true).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+  // Users are never hard deleted. A deleted account keeps its row (orders, payments and
+  // chit history stay linked to it) and its phone number becomes free to register again.
+  isDeleted: boolean("is_deleted").default(false).notNull(),
+  deletedAt: timestamp("deleted_at"),
+  deletionReason: text("deletion_reason"), // "account_deleted" | "password_reset"
+  // Login lockout: 5 wrong passwords locks the account for 15 minutes.
+  failedLoginAttempts: integer("failed_login_attempts").default(0).notNull(),
+  lockedUntil: timestamp("locked_until"),
+}, (t) => [
+  // At most one live (not deleted) account per phone number, enforced by the database.
+  uniqueIndex("users_active_phone_unique").on(t.phone).where(sql`${t.isDeleted} = false`),
+]);
 
-export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true });
-export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof usersTable.$inferSelect;

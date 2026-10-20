@@ -138,5 +138,5 @@ Every package extends `tsconfig.base.json` which sets `composite: true`.
 
 - `pnpm --filter @workspace/api-server run dev` — run the API dev server
 - `pnpm --filter @workspace/mobile run dev` — run Expo dev server
-- `pnpm --filter @workspace/db run push` — push DB schema
+- `pnpm --filter @workspace/db run migrate` — apply database migrations (see docs/DATABASE.md)
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API client from OpenAPI spec

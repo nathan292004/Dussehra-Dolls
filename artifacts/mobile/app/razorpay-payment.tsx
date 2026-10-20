@@ -21,9 +21,22 @@ type PaymentParams = {
   name: string;
   description: string;
   dbOrderId?: string;
-  enrollmentId?: string;
+  chitPlanId?: string;
   type: "order" | "chit" | "wallet";
 };
+
+// The customer closed or failed the online payment for a shop order: release any wallet money held for it.
+async function cancelPendingOrder(params: PaymentParams) {
+  if (params.type !== "order" || !params.dbOrderId) return;
+  try {
+    const token = await getStoredToken();
+    await fetch(getApiBase() + "/payment/cancel-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ dbOrderId: parseInt(params.dbOrderId, 10) }),
+    });
+  } catch { /* the server also releases unpaid holds automatically after 30 minutes */ }
+}
 
 async function verifyAndNavigate(
   data: { razorpayPaymentId: string; razorpayOrderId: string; razorpaySignature: string },
@@ -46,7 +59,7 @@ async function verifyAndNavigate(
     endpoint = "/payment/verify-wallet-payment";
   } else {
     endpoint = "/payment/verify-chit-payment";
-    body.enrollmentId = parseInt(params.enrollmentId!);
+    body.chitPlanId = parseInt(params.chitPlanId!);
   }
 
   const res = await fetch(apiBase + endpoint, {
@@ -67,7 +80,14 @@ async function verifyAndNavigate(
     } else {
       router.replace({
         pathname: "/payment-result",
-        params: { success: "true", type: "chit", isCompleted: result.isCompleted ? "true" : "false" },
+        params: {
+          success: "true",
+          type: "chit",
+          isCompleted: result.isCompleted ? "true" : "false",
+          partial: result.partial ? "true" : "false",
+          outstanding: String(result.outstanding ?? 0),
+          received: String(result.received ?? 0),
+        },
       });
     }
   } else {
@@ -116,6 +136,7 @@ function WebRazorpayPayment({ params }: { params: PaymentParams }) {
       theme: { color: "#2E8B57" },
       modal: {
         ondismiss: () => {
+          void cancelPendingOrder(params);
           router.back();
         },
       },
@@ -141,6 +162,7 @@ function WebRazorpayPayment({ params }: { params: PaymentParams }) {
 
     const rzp = new RazorpayClass(options);
     rzp.on("payment.failed", (response: any) => {
+      void cancelPendingOrder(params);
       router.replace({
         pathname: "/payment-result",
         params: { success: "false", message: response.error?.description || "Payment failed", type: params.type },
@@ -152,7 +174,7 @@ function WebRazorpayPayment({ params }: { params: PaymentParams }) {
   return (
     <View style={[styles.container, { paddingTop: 67 }]}>
       <View style={styles.header}>
-        <Pressable style={styles.closeBtn} onPress={() => router.back()}>
+        <Pressable style={styles.closeBtn} onPress={() => { void cancelPendingOrder(params); router.back(); }}>
           <Ionicons name="close" size={22} color={Colors.light.text} />
         </Pressable>
         <Text style={styles.headerTitle}>Secure Payment</Text>
@@ -282,8 +304,9 @@ function NativeRazorpayPayment({ params }: { params: PaymentParams }) {
   const handleMessage = async (event: { nativeEvent: { data: string } }) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === "dismiss") { router.back(); return; }
+      if (data.type === "dismiss") { void cancelPendingOrder(params); router.back(); return; }
       if (data.type === "failed") {
+        void cancelPendingOrder(params);
         router.replace({ pathname: "/payment-result", params: { success: "false", message: data.error || "Payment failed", type: params.type } });
         return;
       }
@@ -301,7 +324,7 @@ function NativeRazorpayPayment({ params }: { params: PaymentParams }) {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable style={styles.closeBtn} onPress={() => router.back()}>
+        <Pressable style={styles.closeBtn} onPress={() => { void cancelPendingOrder(params); router.back(); }}>
           <Ionicons name="close" size={22} color={Colors.light.text} />
         </Pressable>
         <Text style={styles.headerTitle}>Secure Payment</Text>

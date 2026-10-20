@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -6,13 +6,16 @@ import {
   ScrollView,
   Pressable,
   Platform,
+  Modal,
+  TextInput,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
-import { useAuth } from "@/context/auth";
+import { useAuth, ApiError } from "@/context/auth";
 
 interface MenuItem {
   icon: keyof typeof Ionicons.glyphMap;
@@ -42,7 +45,11 @@ function MenuRow({ item }: { item: MenuItem }) {
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, logout } = useAuth();
+  const { user, logout, deleteAccount } = useAuth();
+  const [showDelete, setShowDelete] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deleting, setDeleting] = useState(false);
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -63,6 +70,23 @@ export default function ProfileScreen() {
       </View>
     );
   }
+
+  const handleDelete = async () => {
+    if (!deletePassword) { setDeleteError("Please enter your password"); return; }
+    setDeleteError("");
+    setDeleting(true);
+    try {
+      await deleteAccount(deletePassword);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowDelete(false);
+      setDeletePassword("");
+    } catch (err: any) {
+      setDeleteError(err instanceof ApiError ? err.message : "Could not delete your account. Please try again.");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const initials = user.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
 
@@ -121,7 +145,6 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.profileInfo}>
             <Text style={styles.profileName}>{user.name}</Text>
-            <Text style={styles.profileEmail}>{user.email}</Text>
             {user.phone && <Text style={styles.profilePhone}>{user.phone}</Text>}
           </View>
         </View>
@@ -143,8 +166,50 @@ export default function ProfileScreen() {
           <Text style={styles.logoutText}>Sign Out</Text>
         </Pressable>
 
+        <Pressable
+          style={styles.deleteBtn}
+          onPress={() => { Haptics.selectionAsync(); setDeleteError(""); setDeletePassword(""); setShowDelete(true); }}
+        >
+          <Text style={styles.deleteText}>Delete my account</Text>
+        </Pressable>
+
         <Text style={styles.versionText}>DollDime v1.0.0</Text>
       </ScrollView>
+
+      <Modal visible={showDelete} transparent animationType="fade" onRequestClose={() => setShowDelete(false)}>
+        <View style={styles.overlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => !deleting && setShowDelete(false)} />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Delete your account?</Text>
+            <Text style={styles.modalText}>
+              Your account will be closed and you will be signed out. Your order history is kept for our records.
+              You can register again later with the same number as a new account.
+            </Text>
+            <Text style={styles.modalText}>
+              Accounts with wallet money, savings in a chit plan or an undelivered order cannot be deleted yet.
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              value={deletePassword}
+              onChangeText={setDeletePassword}
+              placeholder="Enter your password to confirm"
+              placeholderTextColor={Colors.light.textMuted}
+              secureTextEntry
+              autoCapitalize="none"
+              editable={!deleting}
+            />
+            {deleteError ? <Text style={styles.modalError}>{deleteError}</Text> : null}
+            <View style={styles.modalBtns}>
+              <Pressable style={styles.modalCancelBtn} onPress={() => setShowDelete(false)} disabled={deleting}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={[styles.modalDeleteBtn, deleting && { opacity: 0.6 }]} onPress={handleDelete} disabled={deleting}>
+                {deleting ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalDeleteText}>Delete</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -194,6 +259,28 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "#F5C4B3",
   },
   logoutText: { fontSize: 13, fontWeight: "500", color: Colors.light.error },
+  deleteBtn: { alignItems: "center", paddingVertical: 10 },
+  deleteText: { fontSize: 12, color: Colors.light.textMuted, textDecorationLine: "underline" },
+  overlay: {
+    flex: 1, backgroundColor: "rgba(26,26,26,0.5)",
+    alignItems: "center", justifyContent: "center", padding: 24,
+  },
+  modalCard: {
+    backgroundColor: Colors.light.surface, borderRadius: 20, padding: 22,
+    width: "100%", maxWidth: 380, gap: 12,
+  },
+  modalTitle: { fontSize: 18, fontWeight: "700", color: Colors.light.text },
+  modalText: { fontSize: 13, color: Colors.light.textSecondary, lineHeight: 19 },
+  modalInput: {
+    borderWidth: 1.5, borderColor: Colors.light.border, borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: Colors.light.text,
+  },
+  modalError: { fontSize: 13, color: Colors.light.error, lineHeight: 18 },
+  modalBtns: { flexDirection: "row", gap: 12, marginTop: 4 },
+  modalCancelBtn: { flex: 1, paddingVertical: 13, alignItems: "center", borderRadius: 10 },
+  modalCancelText: { fontSize: 15, color: Colors.light.textSecondary },
+  modalDeleteBtn: { flex: 1, paddingVertical: 13, alignItems: "center", borderRadius: 10, backgroundColor: Colors.light.error },
+  modalDeleteText: { fontSize: 15, fontWeight: "600", color: "#fff" },
   versionText: {
     fontSize: 12, color: Colors.light.textMuted,
     textAlign: "center", paddingBottom: 8,

@@ -50,6 +50,9 @@ app.use(
   })
 );
 
+// Automated tests switch the per-IP limits off (they hammer one IP); production never does.
+const skipRateLimitInTests = () => process.env.RATE_LIMITS_OFF === "1";
+
 // ─── Global rate limiter (100 req/min per IP) ───────────────
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -58,6 +61,7 @@ const globalLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later." },
   validate: { xForwardedForHeader: false },
+  skip: skipRateLimitInTests,
 });
 app.use(globalLimiter);
 
@@ -69,11 +73,32 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many auth attempts, please wait." },
   validate: { xForwardedForHeader: false },
+  skip: skipRateLimitInTests,
 });
 app.use("/api/auth", authLimiter);
 
+// --- Admin login: 10 attempts per 15 minutes per IP ---
+const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many login attempts. Please try again in 15 minutes." },
+  validate: { xForwardedForHeader: false },
+  skip: skipRateLimitInTests,
+});
+app.use("/api/admin/auth/login", adminLoginLimiter);
+
 // ─── Body parsers ───────────────────────────────────────────
-app.use(express.json({ limit: "1mb" }));
+// rawBody is kept so the Razorpay webhook signature can be checked against the exact bytes sent.
+app.use(
+  express.json({
+    limit: "1mb",
+    verify: (req, _res, buf) => {
+      (req as any).rawBody = buf;
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
 // ─── Structured logging ────────────────────────────────────

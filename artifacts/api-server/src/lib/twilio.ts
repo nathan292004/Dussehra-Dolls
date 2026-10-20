@@ -78,7 +78,10 @@ export async function sendSms(to: string, body: string) {
   return result;
 }
 
-export async function sendWhatsApp(to: string, body: string) {
+export type WhatsAppResult = { ok: true; sid?: string } | { ok: false; error: string };
+
+/** Sends a WhatsApp message and reports what happened (never throws). */
+export async function trySendWhatsApp(to: string, body: string): Promise<WhatsAppResult> {
   const rawFrom = process.env.TWILIO_WHATSAPP_FROM || "+14155238886";
   const from = "whatsapp:" + rawFrom.replace(/^whatsapp:/, "");
 
@@ -88,7 +91,7 @@ export async function sendWhatsApp(to: string, body: string) {
   const toWa = "whatsapp:" + actualTo.replace(/^whatsapp:/, "");
 
   if (testOverride) {
-    console.log(`[Twilio] WhatsApp TEST MODE — redirecting ${to} → ${toWa}`);
+    console.log(`[Twilio] WhatsApp TEST MODE: redirecting ${to} to ${toWa}`);
   } else {
     console.log(`[Twilio] Sending WhatsApp to ${toWa}`);
   }
@@ -96,9 +99,15 @@ export async function sendWhatsApp(to: string, body: string) {
   try {
     const result = await callTwilio(toWa, from, body);
     console.log("[Twilio] WhatsApp sent, SID:", result.sid);
-    return result;
+    return { ok: true, sid: typeof result.sid === "string" ? result.sid : undefined };
   } catch (err) {
     console.error("[Twilio] WhatsApp send failed (non-fatal):", err);
-    return null;
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/** Older callers: returns the provider result, or null if the send failed. */
+export async function sendWhatsApp(to: string, body: string) {
+  const r = await trySendWhatsApp(to, body);
+  return r.ok ? { sid: r.sid } : null;
 }
