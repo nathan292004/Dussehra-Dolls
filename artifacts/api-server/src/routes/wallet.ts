@@ -41,4 +41,6 @@ router.get("/", async (req: AuthRequest, res) => {
   }
 });
 
+router.post("/", (_req, res) => res.status(410).json({ error: "Use a verified payment method" }));
+
 export default router;

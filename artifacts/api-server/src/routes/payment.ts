@@ -64,6 +64,16 @@ function validSignature(orderId: unknown, paymentId: unknown, signature: unknown
   return crypto.timingSafeEqual(expected, Buffer.from(signature, "hex"));
 }
 
+/** A latitude/longitude pin is optional, but if given at all it must be a valid coordinate. */
+function validPin(latitude: unknown, longitude: unknown): boolean {
+  if (latitude === undefined && longitude === undefined) return true;
+  return (
+    typeof latitude === "number" && typeof longitude === "number" &&
+    Number.isFinite(latitude) && latitude >= -90 && latitude <= 90 &&
+    Number.isFinite(longitude) && longitude >= -180 && longitude <= 180
+  );
+}
+
 /**
  * How much of an order the wallet pays. Only the spendable balance counts (never money locked
  * in a chit plan). The part left for the online payment must be at least ₹1, so if the wallet
@@ -88,6 +98,10 @@ router.post("/create-order", async (req: AuthRequest, res) => {
     if (!address) return res.status(400).json({ error: "Delivery address is required" });
     if (address.length > MAX_ADDRESS_LENGTH) {
       return res.status(400).json({ error: `Address must be at most ${MAX_ADDRESS_LENGTH} characters` });
+    }
+    const { latitude, longitude } = req.body ?? {};
+    if (!validPin(latitude, longitude)) {
+      return res.status(400).json({ error: "Selected map location is invalid" });
     }
     const useWallet = req.body?.useWallet === true;
     const userId = req.userId!;
@@ -161,6 +175,8 @@ router.post("/create-order", async (req: AuthRequest, res) => {
             total: paiseToDecimal(totalPaise),
             walletAmount: paiseToDecimal(walletPaise),
             address,
+            addressLatitude: latitude ?? null,
+            addressLongitude: longitude ?? null,
             paymentMethod: "wallet",
             status: "confirmed",
             paymentStatus: "paid",
@@ -180,6 +196,8 @@ router.post("/create-order", async (req: AuthRequest, res) => {
           total: paiseToDecimal(totalPaise),
           walletAmount: paiseToDecimal(walletPaise),
           address,
+          addressLatitude: latitude ?? null,
+          addressLongitude: longitude ?? null,
           paymentMethod: walletPaise > 0 ? "wallet+razorpay" : "razorpay",
           status: "pending",
           paymentStatus: "pending",

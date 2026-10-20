@@ -207,6 +207,11 @@ router.post("/send-otp", async (req, res) => {
       .values({ phone, otp, purpose, expiresAt: new Date(Date.now() + OTP_VALID_MINUTES * 60_000) })
       .returning();
 
+    // For local development only: let developers exercise the complete OTP flow without a paid SMS account.
+    if (process.env.NODE_ENV === "development" && process.env.DEV_OTP_MODE === "true") {
+      return res.json({ success: true, message: "Local development code generated", developmentOtp: otp });
+    }
+
     const meta = { userId: existing?.userId ?? null, kind: purpose === "reset" ? "otp_reset" : "otp_register" } as const;
     try {
       await sendSms(phone, `Your DollDime verification code is: ${otp}. Valid for ${OTP_VALID_MINUTES} minutes.`);

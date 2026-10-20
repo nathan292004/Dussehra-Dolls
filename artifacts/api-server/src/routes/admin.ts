@@ -12,6 +12,7 @@ import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
+import whatsappAdminRouter from "./admin-whatsapp";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadsDir = path.join(__dirname, "..", "..", "uploads");
@@ -38,6 +39,9 @@ const upload = multer({
 });
 
 const router = Router();
+
+// Already gated by requireAdmin at the mount point in routes/index.ts.
+router.use("/whatsapp", whatsappAdminRouter);
 
 // ─── Image Upload ─────────────────────────────────────────────────────────────
 router.post("/upload", upload.single("image"), (req, res) => {
@@ -95,6 +99,8 @@ router.get("/stats", async (_req, res) => {
         paymentStatus: ordersTable.paymentStatus,
         paymentMethod: ordersTable.paymentMethod,
         address: ordersTable.address,
+        addressLatitude: ordersTable.addressLatitude,
+        addressLongitude: ordersTable.addressLongitude,
         items: ordersTable.items,
         createdAt: ordersTable.createdAt,
         customerName: sql<string>`concat_ws(' ', ${usersTable.fname}, ${usersTable.lname})`,
@@ -333,6 +339,8 @@ router.get("/orders", async (_req, res) => {
         paymentStatus: ordersTable.paymentStatus,
         paymentMethod: ordersTable.paymentMethod,
         address: ordersTable.address,
+        addressLatitude: ordersTable.addressLatitude,
+        addressLongitude: ordersTable.addressLongitude,
         items: ordersTable.items,
         createdAt: ordersTable.createdAt,
         customerName: sql<string>`concat_ws(' ', ${usersTable.fname}, ${usersTable.lname})`,
@@ -360,16 +368,18 @@ router.put("/orders/:id/status", async (req, res) => {
     const id = parseInt(req.params.id);
     const { status, paymentStatus } = req.body;
     const validStatuses = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"];
-    const validPaymentStatuses = ["pending", "paid", "failed"];
+    if (paymentStatus !== undefined) return res.status(400).json({ error: "Payment status is controlled by verified payments" });
+    const [current] = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
+    if (!current) return res.status(404).json({ error: "Order not found" });
+    if (status && current.paymentStatus !== "paid" && !["pending", "cancelled"].includes(status))
+      return res.status(409).json({ error: "The order must be paid before fulfillment" });
+    if (status === "cancelled" && current.paymentStatus === "paid")
+      return res.status(409).json({ error: "Paid orders require a refund workflow before cancellation" });
 
     const updateData: Partial<typeof ordersTable.$inferInsert> = {};
     if (status !== undefined) {
       if (!validStatuses.includes(status)) return res.status(400).json({ error: `Invalid status` });
       updateData.status = status;
-    }
-    if (paymentStatus !== undefined) {
-      if (!validPaymentStatuses.includes(paymentStatus)) return res.status(400).json({ error: `Invalid paymentStatus` });
-      updateData.paymentStatus = paymentStatus;
     }
 
     const [updated] = await db.update(ordersTable).set(updateData).where(eq(ordersTable.id, id)).returning();

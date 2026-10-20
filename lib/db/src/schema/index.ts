@@ -8,3 +8,5 @@ export * from "./otp";
 export * from "./vendors";
 export * from "./admin-users";
 export * from "./notifications";
+export * from "./integrations";
+export * from "./addresses";

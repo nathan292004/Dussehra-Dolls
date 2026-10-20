@@ -37,6 +37,7 @@ export default function AuthScreen() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [developmentOtp, setDevelopmentOtp] = useState<string | null>(null);
   const [otpSent, setOtpSent] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
@@ -63,7 +64,7 @@ export default function AuthScreen() {
     setAlreadyRegistered(false);
     setIsLoading(true);
     try {
-      await sendOtp(phone, "register");
+      setDevelopmentOtp(await sendOtp(phone, "register"));
       setOtpSent(true);
       setRegisterStep("otp");
       startCountdown();
@@ -82,7 +83,7 @@ export default function AuthScreen() {
     setError("");
     setIsLoading(true);
     try {
-      await sendOtp(phone, mode === "forgot" ? "reset" : "register");
+      setDevelopmentOtp(await sendOtp(phone, mode === "forgot" ? "reset" : "register"));
       setOtp(["", "", "", "", "", ""]);
       startCountdown();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -156,7 +157,7 @@ export default function AuthScreen() {
     if (!phone) { setError("Please enter your registered phone number"); return; }
     setIsLoading(true);
     try {
-      await sendOtp(phone, "reset");
+      setDevelopmentOtp(await sendOtp(phone, "reset"));
       setOtp(["", "", "", "", "", ""]);
       setForgotStep("reset");
       startCountdown();
@@ -197,6 +198,7 @@ export default function AuthScreen() {
     setOtp(["", "", "", "", "", ""]);
     setOtpSent(false);
     setCountdown(0);
+    setDevelopmentOtp(null);
   };
 
   const otpBoxes = (
@@ -272,7 +274,8 @@ export default function AuthScreen() {
         </View>
         <Text style={styles.otpTitle}>Reset Password</Text>
         <Text style={styles.otpSubtitle}>
-          Enter the code we sent to{"\n"}
+          {developmentOtp ? "Use this local test code:" : "Enter the code we sent to"}{"\n"}
+          {developmentOtp ? <Text style={{ color: Colors.light.tint, fontWeight: "700" }}>{developmentOtp}{"\n"}</Text> : null}
           <Text style={{ color: Colors.light.tint }}>{phone}</Text>
         </Text>
       </View>
@@ -491,7 +494,8 @@ export default function AuthScreen() {
               </View>
               <Text style={styles.otpTitle}>Verify Your Number</Text>
               <Text style={styles.otpSubtitle}>
-                We sent a 6-digit code to{"\n"}
+                {developmentOtp ? "Use this local test code:" : "We sent a 6-digit code to"}{"\n"}
+                {developmentOtp ? <Text style={{ color: Colors.light.tint, fontWeight: "700" }}>{developmentOtp}{"\n"}</Text> : null}
                 <Text style={{ color: Colors.light.tint }}>{phone}</Text>
               </Text>
             </View>

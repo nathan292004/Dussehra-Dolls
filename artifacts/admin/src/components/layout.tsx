@@ -2,7 +2,7 @@ import * as React from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, ShoppingBag, Package, Truck, Users, Wallet,
-  Gift, LogOut, Menu, X, ListOrdered, Store, ClipboardCheck, BellRing,
+  Gift, LogOut, Menu, X, ListOrdered, Store, ClipboardCheck, BellRing, MessageCircle,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
@@ -27,6 +27,7 @@ const navItems: NavItem[] = [
   { icon: ShoppingBag, label: "Chit Subscriptions", href: "/chit-subscriptions" },
   { icon: BellRing, label: "Reminders & Tracking", href: "/tracking" },
   { icon: Wallet, label: "Wallets", href: "/wallets" },
+  { icon: MessageCircle, label: "WhatsApp Promotions", href: "/promotions" },
 ];
 
 export function Layout({

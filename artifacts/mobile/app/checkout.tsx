@@ -18,6 +18,9 @@ import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { useAuth, getApiBase } from "@/context/auth";
 import { useCart } from "@/context/cart";
+import AddressMapPicker, { type PickedAddress } from "@/components/address-map-picker";
+
+type SavedAddress = PickedAddress & { id: number; label: string; recipientName: string; phone: string; isDefault: boolean };
 
 // Mirrors the server: the wallet pays first, but the part left for the online payment must be at least ₹1.
 function walletShare(spendablePaise: number, totalPaise: number) {
@@ -37,6 +40,9 @@ export default function CheckoutScreen() {
   const [wallet, setWallet] = useState<{ balance: number; lockedBalance: number } | null>(null);
   const [useWallet, setUseWallet] = useState(true);
   const [address, setAddress] = useState("");
+  const [pin, setPin] = useState<PickedAddress | null>(null);
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [showMap, setShowMap] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -53,7 +59,23 @@ export default function CheckoutScreen() {
     } catch { /* checkout still works without the wallet */ }
   }, [token]);
 
-  useFocusEffect(useCallback(() => { void loadWallet(); }, [loadWallet]));
+  const loadAddresses = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${getApiBase()}/addresses`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return;
+      const data = await res.json();
+      const rows: SavedAddress[] = data?.addresses || [];
+      setSavedAddresses(rows);
+      const preferred = rows.find((item) => item.isDefault) ?? rows[0];
+      if (preferred) {
+        setAddress(preferred.formattedAddress);
+        setPin({ formattedAddress: preferred.formattedAddress, latitude: preferred.latitude, longitude: preferred.longitude });
+      }
+    } catch { /* checkout still works without saved addresses */ }
+  }, [token]);
+
+  useFocusEffect(useCallback(() => { void loadWallet(); void loadAddresses(); }, [loadWallet, loadAddresses]));
 
   const totalPaise = Math.round(cart.total * 100);
   const spendablePaise = Math.round((wallet?.balance ?? 0) * 100);
@@ -62,14 +84,14 @@ export default function CheckoutScreen() {
   const onlinePaise = totalPaise - walletPaise;
 
   const proceedToPayment = async () => {
-    if (!address.trim()) { setError("Please enter delivery address"); return; }
+    if (address.trim().length < 10 || !pin) { setError("Choose and confirm your delivery pin on Google Maps"); return; }
     setError("");
     setIsLoading(true);
     try {
       const res = await fetch(`${getApiBase()}/payment/create-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ address, useWallet: walletPaise > 0 }),
+        body: JSON.stringify({ address, useWallet: walletPaise > 0, latitude: pin.latitude, longitude: pin.longitude }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -119,7 +141,7 @@ export default function CheckoutScreen() {
           <View style={{ width: 40 }} />
         </View>
 
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 120 }]}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 190 }]}>
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Order Summary</Text>
             {cart.items.map(item => (
@@ -138,15 +160,31 @@ export default function CheckoutScreen() {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Delivery Address</Text>
+            {savedAddresses.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.savedAddresses}>
+              {savedAddresses.map(saved => <Pressable key={saved.id} style={[styles.savedAddress, address === saved.formattedAddress && styles.savedAddressSelected]}
+                onPress={() => { setAddress(saved.formattedAddress); setPin({ formattedAddress: saved.formattedAddress, latitude: saved.latitude, longitude: saved.longitude }); setShowMap(false); setError(""); }}>
+                <Text style={styles.savedAddressLabel}>{saved.label}{saved.isDefault ? " · Default" : ""}</Text>
+                <Text style={styles.savedAddressValue} numberOfLines={2}>{saved.formattedAddress}</Text>
+              </Pressable>)}
+            </ScrollView> : null}
             <TextInput
               style={styles.addressInput}
               value={address}
-              onChangeText={setAddress}
+              onChangeText={value => { setAddress(value); setPin(null); }}
               placeholder="Enter your full delivery address..."
               placeholderTextColor={Colors.light.textMuted}
               multiline
               numberOfLines={3}
             />
+            <Pressable style={styles.mapToggle} onPress={() => { setShowMap(value => !value); setError(""); }}>
+              <Ionicons name="map-outline" size={18} color={Colors.light.tint} />
+              <Text style={styles.mapToggleText}>{showMap ? "Hide map" : pin ? "Adjust pin on Google Maps" : "Choose exact location on Google Maps"}</Text>
+              <Ionicons name={showMap ? "chevron-up" : "chevron-down"} size={16} color={Colors.light.tint} />
+            </Pressable>
+            {showMap ? <AddressMapPicker initial={pin || undefined} onSelect={picked => { setPin(picked); setAddress(picked.formattedAddress); setError(""); }} /> : null}
+            {pin ? <View style={styles.pinConfirmation}><Ionicons name="checkmark-circle" size={17} color={Colors.light.tint} />
+              <Text style={styles.pinText}>Delivery pin selected · {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}</Text></View> :
+              <Text style={styles.mapHelp}>Pick a place on the map to save its exact location with your order.</Text>}
           </View>
 
           {wallet && spendablePaise > 0 ? (
@@ -281,6 +319,16 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.surface, borderRadius: 12, padding: 14,
     minHeight: 80, textAlignVertical: "top", borderWidth: 1, borderColor: Colors.light.border,
   },
+  savedAddresses: { gap: 8, paddingBottom: 2 },
+  savedAddress: { width: 210, padding: 11, borderRadius: 12, borderWidth: 1, borderColor: Colors.light.border, backgroundColor: Colors.light.surface, gap: 5 },
+  savedAddressSelected: { borderColor: Colors.light.tint, backgroundColor: Colors.light.tintLight },
+  savedAddressLabel: { color: Colors.light.text, fontWeight: "600", fontSize: 12 },
+  savedAddressValue: { color: Colors.light.textMuted, fontSize: 11, lineHeight: 15 },
+  mapToggle: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingHorizontal: 12, borderRadius: 12, backgroundColor: Colors.light.tintLight },
+  mapToggleText: { flex: 1, color: Colors.light.tint, fontSize: 13, fontWeight: "600" },
+  pinConfirmation: { flexDirection: "row", alignItems: "center", gap: 6 },
+  pinText: { color: Colors.light.tint, fontSize: 11, flex: 1 },
+  mapHelp: { color: Colors.light.textMuted, fontSize: 11 },
   errorBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#FFF0EE", borderRadius: 10, padding: 12 },
   errorText: { fontSize: 13, color: Colors.light.error, flex: 1 },
   footer: {
@@ -298,4 +346,6 @@ const styles = StyleSheet.create({
   },
   placeBtnDisabled: { opacity: 0.6 },
   placeBtnText: { fontSize: 17, color: "#fff" },
+  balanceBtn: { borderWidth: 1.5, borderColor: Colors.light.tint, borderRadius: 14, paddingVertical: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  balanceBtnText: { color: Colors.light.tint, fontSize: 16 },
 });

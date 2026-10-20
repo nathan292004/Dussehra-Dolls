@@ -32,7 +32,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (phone: string, password: string) => Promise<void>;
   register: (fname: string, lname: string, phone: string, password: string, otp: string) => Promise<void>;
-  sendOtp: (phone: string, purpose?: OtpPurpose) => Promise<void>;
+  sendOtp: (phone: string, purpose?: OtpPurpose) => Promise<string | null>;
   resetPassword: (phone: string, otp: string, newPassword: string) => Promise<void>;
   deleteAccount: (password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -136,7 +136,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const sendOtp = async (phone: string, purpose: OtpPurpose = "register") => {
-    await post("/auth/send-otp", { phone, purpose }, "Failed to send OTP");
+    const data = await post("/auth/send-otp", { phone, purpose }, "Failed to send OTP");
+    return data?.developmentOtp ?? null;
   };
 
   const login = async (phone: string, password: string) => {

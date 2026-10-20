@@ -23,6 +23,7 @@ import {
   onAdminLogout,
   type AdminInfo,
 } from "@/lib/admin-session";
+import { WhatsApp } from "@/pages/whatsapp";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,6 +45,8 @@ function Router({ admin, onLogout }: { admin: AdminInfo | null; onLogout: () => 
         <Route path="/tracking" component={Tracking} />
         <Route path="/chit-subscriptions" component={ChitSubscriptions} />
         <Route path="/wallets" component={Wallets} />
+        <Route path="/whatsapp" component={WhatsApp} />
+        <Route path="/promotions" component={WhatsApp} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

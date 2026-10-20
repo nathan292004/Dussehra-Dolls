@@ -10,6 +10,7 @@ import { assertAuthConfigured } from "./lib/jwt";
 import { startChitReminderScheduler } from "./lib/chit-reminder-scheduler";
 import { startCheckoutSweeper } from "./lib/order-payments";
 import { razorpay } from "./lib/razorpay";
+import { startWhatsAppWorker } from "./lib/whatsapp-worker";
 
 assertAuthConfigured();
 
@@ -18,6 +19,7 @@ async function main() {
   console.log("[Worker] Database connected.");
   startChitReminderScheduler();
   startCheckoutSweeper(razorpay);
+  startWhatsAppWorker();
   console.log("[Worker] Running. Press Ctrl+C to stop.");
 }
 

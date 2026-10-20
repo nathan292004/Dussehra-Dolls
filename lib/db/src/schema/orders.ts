@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, numeric, timestamp, jsonb, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, numeric, timestamp, jsonb, boolean, doublePrecision, index } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
 export const ordersTable = pgTable("orders", {
@@ -21,6 +21,8 @@ export const ordersTable = pgTable("orders", {
   // Cleared exactly once: when the order is paid (stock sold) or cancelled/expired (stock released).
   stockReserved: boolean("stock_reserved").default(false).notNull(),
   address: text("address"),
+  addressLatitude: doublePrecision("address_latitude"),
+  addressLongitude: doublePrecision("address_longitude"),
   paymentMethod: text("payment_method"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
