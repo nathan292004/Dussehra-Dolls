@@ -1,8 +1,10 @@
 import * as React from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { usePaged } from "@/hooks/use-paged";
+import { Pager } from "@/components/pager";
 import { formatCurrency } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
+import { formatIST } from "@/lib/time";
 import { Search, RotateCcw, ChevronDown, ChevronUp, MapPin, CreditCard, Package } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -10,20 +12,8 @@ type OrderItem = { productId: number; productName: string; quantity: number; pri
 type Order = {
   id: number; userId: number; customerName: string; customerPhone?: string;
   items: OrderItem[]; total: number; status: string; paymentStatus: string;
-  address?: string; addressLatitude?: number | null; addressLongitude?: number | null; paymentMethod?: string; walletAmount?: number; createdAt: string;
+  address?: string; addressLink?: string | null; addressLatitude?: number | null; addressLongitude?: number | null; paymentMethod?: string; walletAmount?: number; createdAt: string;
 };
-
-function useOrders() {
-  return useQuery<Order[]>({
-    queryKey: ["/api/admin/orders"],
-    queryFn: async () => {
-      const res = await fetch("/api/admin/orders");
-      if (!res.ok) return [];
-      return res.json();
-    },
-    refetchInterval: 10000,
-  });
-}
 
 function useUpdateOrder() {
   const qc = useQueryClient();
@@ -43,7 +33,7 @@ function useUpdateOrder() {
 }
 
 const ORDER_STATUSES = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"];
-const PAYMENT_STATUSES = ["pending", "paid", "failed"];
+const PAYMENT_STATUSES = ["pending", "paid", "cancelled", "failed"];
 
 function getStatusBadge(status: string) {
   if (status === "delivered") return "success";
@@ -54,7 +44,6 @@ function getStatusBadge(status: string) {
 }
 
 export function Orders() {
-  const { data: orders = [], isLoading, dataUpdatedAt } = useOrders();
   const updateMutation = useUpdateOrder();
 
   const [search, setSearch] = React.useState("");
@@ -64,27 +53,22 @@ export function Orders() {
   const [dateTo, setDateTo] = React.useState("");
   const [applied, setApplied] = React.useState({ search: "", status: "all", payment: "all", from: "", to: "" });
   const [expandedId, setExpandedId] = React.useState<number | null>(null);
-  const [lastRefresh, setLastRefresh] = React.useState(new Date());
 
-  React.useEffect(() => { setLastRefresh(new Date()); }, [dataUpdatedAt]);
+  // Search, status, payment and dates are applied by the server; only one page is loaded at a time.
+  const list = usePaged<Order>("/api/admin/orders", {
+    params: { status: applied.status, paymentStatus: applied.payment, from: applied.from, to: applied.to },
+    refetchInterval: 10000,
+  });
+  const orders = list.items;
+  const isLoading = list.isLoading;
+  React.useEffect(() => { list.setSearch(applied.search); }, [applied.search]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const applyFilters = () => setApplied({ search, status: statusFilter, payment: paymentFilter, from: dateFrom, to: dateTo });
   const resetFilters = () => {
     setSearch(""); setStatusFilter("all"); setPaymentFilter("all"); setDateFrom(""); setDateTo("");
     setApplied({ search: "", status: "all", payment: "all", from: "", to: "" });
   };
-
-  const filtered = orders.filter(o => {
-    if (applied.status !== "all" && o.status !== applied.status) return false;
-    if (applied.payment !== "all" && o.paymentStatus !== applied.payment) return false;
-    if (applied.search) {
-      const s = applied.search.toLowerCase();
-      if (!o.customerName.toLowerCase().includes(s) && !String(o.id).includes(s)) return false;
-    }
-    if (applied.from) { const d = new Date(o.createdAt); if (d < new Date(applied.from)) return false; }
-    if (applied.to) { const d = new Date(o.createdAt); if (d > new Date(applied.to + "T23:59:59")) return false; }
-    return true;
-  });
+  const filtered = orders;
 
   return (
     <div className="space-y-6">
@@ -99,7 +83,7 @@ export function Orders() {
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex-1 min-w-48 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search order ID, customer..." className="w-full pl-9 pr-3 py-2 rounded-lg border border-border text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search order no., customer, phone, address..." className="w-full pl-9 pr-3 py-2 rounded-lg border border-border text-sm outline-none focus:ring-2 focus:ring-primary/20" />
           </div>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-3 py-2 rounded-lg border border-border bg-white text-sm outline-none">
             <option value="all">All statuses</option>
@@ -116,7 +100,7 @@ export function Orders() {
             <RotateCcw className="w-3.5 h-3.5" /> Reset
           </button>
           <span className="text-xs text-muted-foreground ml-auto whitespace-nowrap">
-            Auto-refresh 10s · Last: {format(lastRefresh, "h:mm:ss a")}
+            Auto-refresh 10s · {list.data.total.toLocaleString("en-IN")} orders · times in IST
           </span>
         </div>
       </div>
@@ -145,7 +129,7 @@ export function Orders() {
                   <React.Fragment key={order.id}>
                     <tr className={`border-t border-border/50 hover:bg-muted/10 cursor-pointer ${expandedId === order.id ? "bg-muted/10" : ""}`} onClick={() => setExpandedId(prev => prev === order.id ? null : order.id)}>
                       <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                        {String(order.id).substring(0, 8)}...
+                        #{order.id}
                       </td>
                       <td className="px-4 py-3 font-medium">{order.customerName}</td>
                       <td className="px-4 py-3 font-medium">{formatCurrency(order.total)}</td>
@@ -171,7 +155,7 @@ export function Orders() {
                           }`}
                         >{order.paymentStatus.toUpperCase()}</span>
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground text-xs">{format(new Date(order.createdAt), "d/M/yyyy")}</td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs">{formatIST(order.createdAt, "d/M/yyyy, h:mm a")}</td>
                       <td className="px-4 py-3">
                         <button className="text-xs text-primary hover:underline font-medium">
                           {expandedId === order.id ? "Hide" : "View"}
@@ -205,7 +189,7 @@ export function Orders() {
                                   <h4 className="text-xs font-bold uppercase text-muted-foreground mb-3 flex items-center gap-1.5"><MapPin className="w-4 h-4" /> Shipping</h4>
                                   <div className="bg-white border border-border rounded-xl p-4 text-sm text-muted-foreground">
                                     {order.address || "No address provided."}
-                                    {order.address && <div className="mt-2"><a href={`https://www.google.com/maps/search/?api=1&query=${order.addressLatitude != null && order.addressLongitude != null ? `${order.addressLatitude},${order.addressLongitude}` : encodeURIComponent(order.address)}`} target="_blank" rel="noopener noreferrer" className="text-primary underline">Open in Google Maps</a></div>}
+                                    {order.address && <div className="mt-2"><a href={order.addressLink || `https://www.google.com/maps/search/?api=1&query=${order.addressLatitude != null && order.addressLongitude != null ? `${order.addressLatitude},${order.addressLongitude}` : encodeURIComponent(order.address)}`} target="_blank" rel="noopener noreferrer" className="text-primary underline">Open in Google Maps</a></div>}
                                   </div>
                                 </div>
                                 <div>
@@ -235,6 +219,7 @@ export function Orders() {
             </tbody>
           </table>
         </div>
+        <Pager page={list.page} pageSize={list.pageSize} total={list.data.total} totalPages={list.data.totalPages} onPage={list.setPage} busy={list.isFetching} />
       </div>
     </div>
   );

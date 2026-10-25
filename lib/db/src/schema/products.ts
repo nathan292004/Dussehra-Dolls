@@ -19,8 +19,8 @@ export const productsTable = pgTable("products", {
   tags: jsonb("tags").$type<string[]>().default([]),
   serialNumber: text("serial_number"),
   location: text("location"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   // Safety nets in the database itself: stock can never go negative, and more can never be held than exists.
   check("products_stock_not_negative", sql`${t.stock} >= 0`),

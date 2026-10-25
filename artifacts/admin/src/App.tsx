@@ -19,11 +19,12 @@ import { Login } from "@/pages/login";
 import {
   getAdminToken,
   getStoredAdmin,
-  clearAdminSession,
+  logoutAdmin,
   onAdminLogout,
   type AdminInfo,
 } from "@/lib/admin-session";
 import { WhatsApp } from "@/pages/whatsapp";
+import { AuditLog } from "@/pages/audit-log";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -45,6 +46,7 @@ function Router({ admin, onLogout }: { admin: AdminInfo | null; onLogout: () => 
         <Route path="/tracking" component={Tracking} />
         <Route path="/chit-subscriptions" component={ChitSubscriptions} />
         <Route path="/wallets" component={Wallets} />
+        <Route path="/audit-log" component={AuditLog} />
         <Route path="/whatsapp" component={WhatsApp} />
         <Route path="/promotions" component={WhatsApp} />
         <Route component={NotFound} />
@@ -75,7 +77,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router admin={admin} onLogout={clearAdminSession} />
+          <Router admin={admin} onLogout={logoutAdmin} />
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

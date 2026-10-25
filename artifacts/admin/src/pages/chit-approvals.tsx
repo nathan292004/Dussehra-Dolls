@@ -1,7 +1,9 @@
 import * as React from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
-import { Check, X, Clock, ShieldCheck, ShieldX } from "lucide-react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useDebounced } from "@/hooks/use-paged";
+import { Pager } from "@/components/pager";
+import { formatIST } from "@/lib/time";
+import { Check, X, Clock, ShieldCheck, ShieldX, Search } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
 type Plan = {
@@ -23,7 +25,9 @@ type Plan = {
 };
 
 type Tab = "under_review" | "approved" | "rejected" | "all";
-type Response = { counts: Record<Tab, number>; plans: Plan[] };
+type Response = { counts: Record<Tab, number>; plans: Plan[]; total: number; page: number; pageSize: number; totalPages: number };
+
+const PAGE_SIZE = 25;
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "under_review", label: "Under review" },
@@ -51,12 +55,20 @@ export function ChitApprovals() {
   const [busyId, setBusyId] = React.useState<number | null>(null);
   const [message, setMessage] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
-  const { data, isLoading } = useQuery<Response>({
-    queryKey: ["/api/admin/chit-plans", tab],
+  const [search, setSearch] = React.useState("");
+  const [page, setPage] = React.useState(1);
+  const q = useDebounced(search.trim());
+  React.useEffect(() => setPage(1), [q, tab]);
+  const { data, isLoading, isFetching } = useQuery<Response>({
+    queryKey: ["/api/admin/chit-plans", { tab, page, q }],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/chit-plans?status=${tab}`);
-      return res.ok ? res.json() : { counts: { under_review: 0, approved: 0, rejected: 0, all: 0 }, plans: [] };
+      const params = new URLSearchParams({ status: tab, page: String(page), pageSize: String(PAGE_SIZE) });
+      if (q) params.set("q", q);
+      const res = await fetch(`/api/admin/chit-plans?${params}`);
+      if (!res.ok) throw new Error("Could not load the plans");
+      return res.json();
     },
+    placeholderData: keepPreviousData,
     refetchInterval: 15000,
   });
   const plans = data?.plans ?? [];
@@ -128,6 +140,17 @@ export function ChitApprovals() {
         ))}
       </div>
 
+      <div className="relative max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warm-muted" />
+        <input
+          type="text"
+          placeholder="Search by name, phone or user id..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full pl-10 pr-4 py-2 rounded-lg border border-warm-border focus:ring-2 focus:ring-forest/20 outline-none text-sm"
+        />
+      </div>
+
       <div className="bg-white rounded-2xl border border-warm-border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -161,7 +184,7 @@ export function ChitApprovals() {
                     <td className="px-4 py-3 text-[13px] text-ink">
                       {p.reviewStatus === "under_review" ? formatCurrency(p.amountDueOnApproval ?? 0) : formatCurrency(p.amountPaid)}
                     </td>
-                    <td className="px-4 py-3 text-xs text-warm-muted whitespace-nowrap">{format(new Date(p.createdAt), "d MMM yyyy, h:mm a")}</td>
+                    <td className="px-4 py-3 text-xs text-warm-muted whitespace-nowrap">{formatIST(p.createdAt, "d MMM yyyy, h:mm a")}</td>
                     <td className="px-4 py-3">
                       <StatusPill plan={p} />
                       {p.reviewStatus === "rejected" && p.rejectionReason && (
@@ -202,6 +225,7 @@ export function ChitApprovals() {
             </tbody>
           </table>
         </div>
+        <Pager page={page} pageSize={PAGE_SIZE} total={data?.total ?? 0} totalPages={data?.totalPages ?? 1} onPage={setPage} busy={isFetching} />
       </div>
 
       {rejecting && (

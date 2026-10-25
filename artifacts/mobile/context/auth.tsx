@@ -11,6 +11,7 @@ interface User {
   name: string; // first + last name
   phone?: string | null;
   address?: string | null;
+  addressLink?: string | null;
 }
 
 /** An error from the API that keeps the server's code (e.g. PHONE_ALREADY_REGISTERED) and details. */
@@ -36,6 +37,8 @@ interface AuthContextType {
   resetPassword: (phone: string, otp: string, newPassword: string) => Promise<void>;
   deleteAccount: (password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Reloads the signed-in customer from the server (used by pull-to-refresh). */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -159,9 +162,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = clearSession;
 
+  const refreshUser = async () => {
+    const t = tokenRef.current;
+    if (!t) return;
+    const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${t}` } });
+    if (!res.ok) return; // a 401 signs the customer out through the fetch watcher above
+    const fresh = await res.json();
+    setUser(fresh);
+    await storage.set(USER_KEY, JSON.stringify(fresh));
+  };
+
   return (
     <AuthContext.Provider
-      value={{ user, token, isLoading, login, register, sendOtp, resetPassword, deleteAccount, logout }}
+      value={{ user, token, isLoading, login, register, sendOtp, resetPassword, deleteAccount, logout, refreshUser }}
     >
       {children}
     </AuthContext.Provider>

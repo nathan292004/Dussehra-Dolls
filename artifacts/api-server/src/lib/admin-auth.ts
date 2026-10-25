@@ -37,10 +37,12 @@ export { ADMIN_TOKEN_TTL_SECONDS } from "./jwt";
 export interface AdminTokenPayload {
   sub: number;
   username: string;
+  /** Id of the one live session; must match the admin's current session id. */
+  sid: string;
 }
 
-export function signAdminToken(admin: { id: number; username: string }): string {
-  return signToken("admin", admin.id, { username: admin.username });
+export function signAdminToken(admin: { id: number; username: string }, sessionId: string): string {
+  return signToken("admin", admin.id, { username: admin.username, sid: sessionId });
 }
 
 export function verifyAdminToken(token: string): AdminTokenPayload | null {
@@ -48,5 +50,5 @@ export function verifyAdminToken(token: string): AdminTokenPayload | null {
   if (!verified) return null;
   const sub = Number(verified.sub);
   if (!Number.isInteger(sub) || sub <= 0) return null;
-  return { sub, username: String(verified.claims.username ?? "") };
+  return { sub, username: String(verified.claims.username ?? ""), sid: String(verified.claims.sid ?? "") };
 }

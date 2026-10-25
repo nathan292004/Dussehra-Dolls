@@ -1,9 +1,11 @@
 import * as React from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { usePaged } from "@/hooks/use-paged";
+import { Pager } from "@/components/pager";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
-import { Plus, Edit2, Trash2, Package, Hash, ImagePlus, X, Eye, EyeOff } from "lucide-react";
+import { Plus, Edit2, Trash2, Package, Hash, ImagePlus, X, Eye, EyeOff, Search } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -11,15 +13,20 @@ import { formatCurrency } from "@/lib/utils";
 
 const productSchema = z.object({
   id: z.number().optional(),
-  name: z.string().min(1, "Name is required"),
-  description: z.string().optional().nullable(),
-  serialNumber: z.string().optional().nullable(),
-  price: z.coerce.number().min(0),
-  originalPrice: z.coerce.number().optional().nullable(),
-  category: z.string().min(1, "Category is required"),
+  name: z.string().trim().min(1, "Name is required").max(120, "Name must be at most 120 characters"),
+  description: z.string().max(2000, "Description must be at most 2000 characters").optional().nullable(),
+  serialNumber: z.string().max(60, "Serial number must be at most 60 characters").optional().nullable(),
+  price: z.coerce.number({ invalid_type_error: "Enter a price" }).min(0, "Price cannot be negative").max(10_000_000, "Price is too large")
+    .refine((v) => Math.abs(v * 100 - Math.round(v * 100)) < 1e-6, "Price can have at most 2 decimals"),
+  originalPrice: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined || (typeof v === "number" && Number.isNaN(v)) ? null : v),
+    z.coerce.number().min(0, "Original price cannot be negative")
+      .refine((v) => Math.abs(v * 100 - Math.round(v * 100)) < 1e-6, "Original price can have at most 2 decimals").nullable(),
+  ).optional(),
+  category: z.string().trim().min(1, "Category is required").max(60, "Category must be at most 60 characters"),
   imageUrl: z.string().optional().nullable(),
-  stock: z.coerce.number().int().min(0),
-  location: z.string().optional().nullable(),
+  stock: z.coerce.number({ invalid_type_error: "Enter the stock" }).int("Stock must be a whole number").min(0, "Stock cannot be negative").max(1_000_000, "Stock is too large"),
+  location: z.string().max(100, "Location must be at most 100 characters").optional().nullable(),
   isFeatured: z.boolean().optional().default(false),
   tagsString: z.string().optional(),
 });
@@ -45,16 +52,9 @@ type Product = {
   updatedAt?: string;
 };
 
-function useProducts() {
-  return useQuery<Product[]>({
-    queryKey: ["/api/admin/products"],
-    queryFn: async () => {
-      const res = await fetch("/api/admin/products");
-      if (!res.ok) return [];
-      return res.json();
-    },
-    refetchInterval: 10000,
-  });
+async function failWithServerMessage(res: Response, fallback: string): Promise<never> {
+  const body = await res.json().catch(() => ({}));
+  throw new Error(body.error || fallback);
 }
 
 function useCreateProduct() {
@@ -62,7 +62,7 @@ function useCreateProduct() {
   return useMutation({
     mutationFn: async (data: Omit<Product, "id">) => {
       const res = await fetch("/api/admin/products", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
-      if (!res.ok) throw new Error("Failed to create");
+      if (!res.ok) return failWithServerMessage(res, "Failed to create");
       return res.json();
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/admin/products"] }),
@@ -74,7 +74,7 @@ function useUpdateProduct() {
   return useMutation({
     mutationFn: async ({ id, ...data }: Product) => {
       const res = await fetch(`/api/admin/products/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
-      if (!res.ok) throw new Error("Failed to update");
+      if (!res.ok) return failWithServerMessage(res, "Failed to update");
       return res.json();
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/admin/products"] }),
@@ -86,7 +86,7 @@ function useDeleteProduct() {
   return useMutation({
     mutationFn: async (id: number) => {
       const res = await fetch(`/api/admin/products/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete");
+      if (!res.ok) return failWithServerMessage(res, "Failed to delete");
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/admin/products"] }),
   });
@@ -97,7 +97,7 @@ function useToggleListing() {
   return useMutation({
     mutationFn: async (id: number) => {
       const res = await fetch(`/api/admin/products/${id}/toggle-listing`, { method: "PATCH" });
-      if (!res.ok) throw new Error("Failed to toggle listing");
+      if (!res.ok) return failWithServerMessage(res, "Failed to toggle listing");
       return res.json();
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/admin/products"] }),
@@ -107,14 +107,18 @@ function useToggleListing() {
 async function uploadImage(file: File): Promise<string> {
   const form = new FormData();
   form.append("image", file);
-  const res = await fetch("/api/admin/upload", { method: "POST", body: form });
-  if (!res.ok) throw new Error("Image upload failed");
+  const res = await fetch("/api/admin/products/upload", { method: "POST", body: form });
+  if (!res.ok) return failWithServerMessage(res, "Image upload failed");
   const data = await res.json();
   return data.url as string;
 }
 
 export function Products() {
-  const { data: products = [], isLoading } = useProducts();
+  const [listedFilter, setListedFilter] = React.useState("all");
+  const list = usePaged<Product>("/api/admin/products", { params: { listed: listedFilter }, refetchInterval: 10000 });
+  const products = list.items;
+  const isLoading = list.isLoading;
+  const [formError, setFormError] = React.useState("");
   const createMutation = useCreateProduct();
   const updateMutation = useUpdateProduct();
   const deleteMutation = useDeleteProduct();
@@ -135,6 +139,7 @@ export function Products() {
   const currentImageUrl = watch("imageUrl");
 
   const openCreate = () => {
+    setFormError("");
     setEditingProduct(null);
     reset({ stock: 0, price: 0, isFeatured: false });
     setImageFile(null);
@@ -143,6 +148,7 @@ export function Products() {
   };
 
   const openEdit = (p: Product) => {
+    setFormError("");
     setEditingProduct(p);
     reset({ ...p, tagsString: p.tags?.join(", ") || "" });
     setImageFile(null);
@@ -167,6 +173,7 @@ export function Products() {
   };
 
   const onSubmit = async (data: FormData) => {
+    setFormError("");
     try {
       let imageUrl = data.imageUrl || null;
 
@@ -176,8 +183,9 @@ export function Products() {
         setIsUploading(false);
       }
 
+      const { tagsString: _unused, ...rest } = data;
       const payload = {
-        ...data,
+        ...rest,
         imageUrl,
         tags: data.tagsString ? data.tagsString.split(",").map(s => s.trim()).filter(Boolean) : [],
       };
@@ -185,19 +193,22 @@ export function Products() {
       if (editingProduct?.id) {
         updateMutation.mutate({ ...payload, id: editingProduct.id } as Product, {
           onSuccess: () => { setIsModalOpen(false); setImageFile(null); setImagePreview(null); },
+          onError: (e: Error) => setFormError(e.message),
         });
       } else {
         createMutation.mutate(payload as Omit<Product, "id">, {
           onSuccess: () => { setIsModalOpen(false); setImageFile(null); setImagePreview(null); },
+          onError: (e: Error) => setFormError(e.message),
         });
       }
-    } catch {
+    } catch (e) {
       setIsUploading(false);
+      setFormError(e instanceof Error ? e.message : "Something went wrong");
     }
   };
 
   const handleDelete = (id: number) => {
-    if (confirm("Delete this product? It will be removed from the customer app.")) deleteMutation.mutate(id);
+    if (confirm("Delete this product? It will be removed from the customer app. This cannot be undone.")) deleteMutation.mutate(id, { onError: (e) => window.alert(e.message) });
   };
 
   const isPending = isUploading || createMutation.isPending || updateMutation.isPending;
@@ -210,6 +221,24 @@ export function Products() {
           <p className="text-warm-secondary mt-1 text-sm">Manage your doll catalog — changes are live in the app instantly.</p>
         </div>
         <Button onClick={openCreate}><Plus className="w-4 h-4 mr-2" /> Add Product</Button>
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <div className="relative max-w-sm flex-1 min-w-56">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warm-muted" />
+          <input
+            type="text"
+            placeholder="Search by name, serial number or location..."
+            value={list.search}
+            onChange={(e) => list.setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 rounded-lg border border-warm-border focus:ring-2 focus:ring-forest/20 outline-none text-sm"
+          />
+        </div>
+        <select value={listedFilter} onChange={(e) => setListedFilter(e.target.value)} className="px-3 py-2 rounded-lg border border-warm-border bg-white text-sm outline-none">
+          <option value="all">All products</option>
+          <option value="true">Listed</option>
+          <option value="false">Hidden</option>
+        </select>
       </div>
 
       <div className="bg-white rounded-2xl border border-warm-border overflow-hidden">
@@ -290,6 +319,7 @@ export function Products() {
             </tbody>
           </table>
         </div>
+        <Pager page={list.page} pageSize={list.pageSize} total={list.data.total} totalPages={list.data.totalPages} onPage={list.setPage} busy={list.isFetching} />
       </div>
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingProduct ? "Edit Product" : "Add Product"} description="Changes are reflected in the mobile app immediately.">
@@ -395,6 +425,7 @@ export function Products() {
               <label htmlFor="isFeatured" className="text-sm font-medium cursor-pointer">Feature on homepage</label>
             </div>
           </div>
+          {formError && <p role="alert" className="text-sm text-destructive">{formError}</p>}
           <div className="flex justify-end gap-3 pt-4 border-t border-warm-border">
             <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button type="submit" isLoading={isPending}>

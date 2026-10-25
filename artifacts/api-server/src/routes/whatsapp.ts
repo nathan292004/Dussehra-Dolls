@@ -6,12 +6,12 @@ import { authMiddleware, type AuthRequest } from "../middlewares/auth";
 
 const router = Router();
 
-router.use(authMiddleware as any);
-router.get("/preferences", async (req: AuthRequest, res) => {
+router.use(authMiddleware);
+router.get("/preferences", async (req, res) => {
   const [row] = await db.select().from(whatsappPreferencesTable).where(eq(whatsappPreferencesTable.userId, req.userId!)).limit(1);
   return res.json({ orderUpdates: row?.orderUpdates ?? false, marketing: row?.marketing ?? false });
 });
-router.put("/preferences", async (req: AuthRequest, res) => {
+router.put("/preferences", async (req, res) => {
   const { orderUpdates, marketing } = req.body || {};
   if (typeof orderUpdates !== "boolean" || typeof marketing !== "boolean") return res.status(400).json({ error: "Both choices are required" });
   const [existing] = await db.select().from(whatsappPreferencesTable).where(eq(whatsappPreferencesTable.userId, req.userId!)).limit(1);

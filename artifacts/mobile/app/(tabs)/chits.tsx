@@ -24,6 +24,8 @@ import {
   QUICK_PICK_CHITS,
   chitPlanFigures,
 } from "@/constants/chit";
+import { useRefreshControl } from "@/hooks/use-refresh-control";
+import { formatDateIST } from "@/lib/time";
 
 interface ChitPlan {
   id: number;
@@ -117,6 +119,8 @@ export default function ChitsScreen() {
   useFocusEffect(useCallback(() => {
     void Promise.all([fetchMyChits(), fetchCycle()]).finally(() => setIsLoading(false));
   }, [fetchMyChits, fetchCycle]));
+
+  const refreshControl = useRefreshControl(() => Promise.all([fetchMyChits(), fetchCycle()]));
 
   const setChits = (n: number) => {
     setEnrollError("");
@@ -237,6 +241,7 @@ export default function ChitsScreen() {
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 100 }]}
         keyboardShouldPersistTaps="handled"
+        refreshControl={refreshControl}
       >
         {tab === "browse" ? (
           <>
@@ -599,7 +604,7 @@ export default function ChitsScreen() {
                   <View style={styles.nextPaymentRow}>
                     <Ionicons name="calendar-outline" size={14} color={Colors.light.textMuted} />
                     <Text style={styles.nextPaymentText}>
-                      Next payment opens {nextDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                      Next payment opens {formatDateIST(nextDate)}
                     </Text>
                   </View>
                 )}

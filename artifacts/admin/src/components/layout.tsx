@@ -2,9 +2,10 @@ import * as React from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, ShoppingBag, Package, Truck, Users, Wallet,
-  Gift, LogOut, Menu, X, ListOrdered, Store, ClipboardCheck, BellRing, MessageCircle,
+  LogOut, Menu, X, ListOrdered, Store, ClipboardCheck, BellRing, MessageCircle, ScrollText, RefreshCw,
 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { usePullToRefresh } from "@/hooks/use-pull-to-refresh";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import type { AdminInfo } from "@/lib/admin-session";
@@ -28,6 +29,7 @@ const navItems: NavItem[] = [
   { icon: BellRing, label: "Reminders & Tracking", href: "/tracking" },
   { icon: Wallet, label: "Wallets", href: "/wallets" },
   { icon: MessageCircle, label: "WhatsApp Promotions", href: "/promotions" },
+  { icon: ScrollText, label: "Audit Log", href: "/audit-log" },
 ];
 
 export function Layout({
@@ -41,6 +43,9 @@ export function Layout({
 }) {
   const [location] = useLocation();
   const [isMobileOpen, setIsMobileOpen] = React.useState(false);
+  const queryClient = useQueryClient();
+  // Reload everything on the page: by pulling down on a touch screen, or with the refresh button.
+  const { pull, refreshing, refresh, triggerPx } = usePullToRefresh(() => queryClient.refetchQueries({ type: "active" }));
   // Small red number on "Chit Approvals" when plans are waiting for review.
   const { data: stats } = useQuery<{ pendingChitApprovals?: number } | null>({
     queryKey: ["/api/admin/stats"],
@@ -118,7 +123,22 @@ export function Layout({
           <img src={`${import.meta.env.BASE_URL}images/logo.png`} alt="Logo" className="w-8 h-8 object-contain" />
           <span className="font-display text-ink" style={{ fontWeight: 700 }}>DollDime</span>
         </div>
-        <button onClick={() => setIsMobileOpen(true)} className="text-ink p-2"><Menu className="h-6 w-6" /></button>
+        <div className="flex items-center">
+          <button onClick={() => void refresh()} aria-label="Refresh" className="text-ink p-2">
+            <RefreshCw className={cn("h-5 w-5", refreshing && "animate-spin")} />
+          </button>
+          <button onClick={() => setIsMobileOpen(true)} className="text-ink p-2"><Menu className="h-6 w-6" /></button>
+        </div>
+      </div>
+
+      {/* Pull-to-refresh indicator */}
+      <div
+        className="lg:hidden fixed left-0 right-0 top-14 z-30 flex justify-center pointer-events-none"
+        style={{ transform: `translateY(${refreshing ? 8 : pull - 36}px)`, opacity: refreshing ? 1 : Math.min(pull / triggerPx, 1), transition: pull ? "none" : "transform 0.2s, opacity 0.2s" }}
+      >
+        <div className="h-9 w-9 rounded-full bg-white shadow-md border border-warm-border flex items-center justify-center">
+          <RefreshCw className={cn("h-4 w-4 text-forest", refreshing && "animate-spin")} style={refreshing ? undefined : { transform: `rotate(${pull * 4}deg)` }} />
+        </div>
       </div>
 
       <AnimatePresence>
@@ -144,7 +164,14 @@ export function Layout({
       </AnimatePresence>
 
       <main className="flex-1 flex flex-col min-w-0 pt-14 lg:pt-0">
-        <div className="flex-1 p-4 sm:p-8 max-w-7xl mx-auto w-full bg-cream min-h-screen">
+        <div className="flex-1 p-4 sm:p-8 max-w-7xl mx-auto w-full bg-cream min-h-screen relative">
+          <button
+            onClick={() => void refresh()}
+            title="Refresh this page"
+            className="hidden lg:flex absolute top-3 right-3 items-center gap-1.5 text-xs text-warm-secondary hover:text-ink px-2.5 py-1.5 rounded-lg border border-warm-border bg-white"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} /> Refresh
+          </button>
           {children}
         </div>
       </main>

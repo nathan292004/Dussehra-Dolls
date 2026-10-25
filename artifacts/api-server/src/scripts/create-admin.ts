@@ -38,13 +38,23 @@ const { db, pool } = await import("@workspace/db");
 const { adminUsersTable } = await import("@workspace/db/schema");
 const { hashAdminPassword } = await import("../lib/admin-auth");
 
+// There is exactly one admin account. Creating a different one is refused; the same username just resets its password.
+const { count } = await import("drizzle-orm");
+const [{ n }] = await db.select({ n: count() }).from(adminUsersTable);
+const [existing] = await db.select({ username: adminUsersTable.username }).from(adminUsersTable).limit(1);
+if (Number(n) > 0 && existing.username !== username) {
+  console.error(`An admin account ("${existing.username}") already exists. Only one admin is allowed; use that username to reset its password.`);
+  await pool.end();
+  process.exit(1);
+}
+
 const passwordHash = await hashAdminPassword(password);
 await db
   .insert(adminUsersTable)
   .values({ username, name: displayName || username, passwordHash })
   .onConflictDoUpdate({
     target: adminUsersTable.username,
-    set: { passwordHash, isActive: true, ...(displayName ? { name: displayName } : {}) },
+    set: { passwordHash, isActive: true, sessionId: null, ...(displayName ? { name: displayName } : {}) },
   });
 console.log(`Admin "${username}" saved.`);
 await pool.end();

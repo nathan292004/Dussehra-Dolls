@@ -1,0 +1,1 @@
+ALTER TABLE "otp_verifications" ADD COLUMN "otp_hash" text NOT NULL;

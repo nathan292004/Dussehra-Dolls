@@ -1,6 +1,7 @@
 const TOKEN_KEY = "dolldime_admin_token";
 const ADMIN_KEY = "dolldime_admin_user";
 const LOGOUT_EVENT = "dolldime-admin-logout";
+const NOTICE_KEY = "dolldime_admin_notice";
 
 export interface AdminInfo {
   id: number;
@@ -44,6 +45,36 @@ export function clearAdminSession() {
   window.dispatchEvent(new Event(LOGOUT_EVENT));
 }
 
+/** Tells the server to end the session (so the token stops working everywhere), then clears it here. */
+export async function logoutAdmin() {
+  const token = getAdminToken();
+  try {
+    if (token) await fetch("/api/admin/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  } catch {
+    /* offline: still sign out on this device */
+  }
+  clearAdminSession();
+}
+
+/** Why the admin was signed out automatically (shown once on the login page), if there was a reason. */
+export function takeLogoutNotice(): string | null {
+  try {
+    const notice = sessionStorage.getItem(NOTICE_KEY);
+    sessionStorage.removeItem(NOTICE_KEY);
+    return notice;
+  } catch {
+    return null;
+  }
+}
+
+function rememberLogoutNotice(message: string) {
+  try {
+    sessionStorage.setItem(NOTICE_KEY, message);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export function onAdminLogout(handler: () => void): () => void {
   window.addEventListener(LOGOUT_EVENT, handler);
   return () => window.removeEventListener(LOGOUT_EVENT, handler);
@@ -70,7 +101,12 @@ export function installAdminFetch() {
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
     if (token) headers.set("Authorization", `Bearer ${token}`);
     const res = await originalFetch(input, { ...init, headers });
-    if (res.status === 401) clearAdminSession();
+    if (res.status === 401) {
+      const body = await res.clone().json().catch(() => null);
+      if (body?.code === "SESSION_REPLACED") rememberLogoutNotice(body.error);
+      else if (body?.error) rememberLogoutNotice(body.error);
+      clearAdminSession();
+    }
     return res;
   };
 }

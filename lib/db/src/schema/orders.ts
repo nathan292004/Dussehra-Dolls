@@ -23,8 +23,9 @@ export const ordersTable = pgTable("orders", {
   address: text("address"),
   addressLatitude: doublePrecision("address_latitude"),
   addressLongitude: doublePrecision("address_longitude"),
+  addressLink: text("address_link"),
   paymentMethod: text("payment_method"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   index("orders_user_idx").on(t.userId, t.createdAt),
   index("orders_status_idx").on(t.status, t.paymentStatus),

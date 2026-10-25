@@ -1,10 +1,12 @@
 import * as React from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { usePaged } from "@/hooks/use-paged";
+import { Pager } from "@/components/pager";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
-import { Package, Hash, MapPin, Info } from "lucide-react";
-import { format } from "date-fns";
+import { Package, Hash, MapPin, Info, Search } from "lucide-react";
+import { formatIST } from "@/lib/time";
 import { formatCurrency } from "@/lib/utils";
 
 type Product = {
@@ -21,14 +23,6 @@ type Product = {
   updatedAt?: string;
   createdAt?: string;
 };
-
-function useInventory() {
-  return useQuery<Product[]>({
-    queryKey: ["/api/admin/products"],
-    queryFn: async () => { const res = await fetch("/api/admin/products"); return res.ok ? res.json() : []; },
-    refetchInterval: 10000,
-  });
-}
 
 function useAdjustProduct() {
   const qc = useQueryClient();
@@ -50,7 +44,10 @@ function useAdjustProduct() {
 }
 
 export function Inventory() {
-  const { data: products = [], isLoading } = useInventory();
+  const [lowOnly, setLowOnly] = React.useState(false);
+  const list = usePaged<Product>("/api/admin/products", { params: { lowStock: lowOnly ? "true" : "" }, refetchInterval: 10000 });
+  const products = list.items;
+  const isLoading = list.isLoading;
   const adjustMutation = useAdjustProduct();
 
   const [adjustTarget, setAdjustTarget] = React.useState<Product | null>(null);
@@ -88,6 +85,22 @@ export function Inventory() {
           Products listed here are live in the mobile app. Use <strong>"Adjust"</strong> to update stock or warehouse location.
           Changes reflect immediately — no restart needed.
         </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative max-w-sm flex-1 min-w-56">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warm-muted" />
+          <input
+            type="text"
+            placeholder="Search by name, serial number or location..."
+            value={list.search}
+            onChange={(e) => list.setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 rounded-lg border border-warm-border focus:ring-2 focus:ring-forest/20 outline-none text-sm"
+          />
+        </div>
+        <label className="flex items-center gap-2 text-sm text-warm-secondary cursor-pointer">
+          <input type="checkbox" checked={lowOnly} onChange={(e) => setLowOnly(e.target.checked)} /> Low stock only (fewer than 5 available)
+        </label>
       </div>
 
       <div className="bg-white rounded-2xl border border-warm-border overflow-hidden">
@@ -148,7 +161,7 @@ export function Inventory() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-warm-muted text-xs">
-                      {p.updatedAt ? format(new Date(p.updatedAt), "d/M/yyyy") : format(new Date(p.createdAt!), "d/M/yyyy")}
+                      {formatIST(p.updatedAt ?? p.createdAt, "d/M/yyyy, h:mm a")}
                     </td>
                     <td className="px-4 py-3">
                       <Button variant="ghost" size="sm" onClick={() => openAdjust(p)}>Adjust</Button>
@@ -159,6 +172,7 @@ export function Inventory() {
             </tbody>
           </table>
         </div>
+        <Pager page={list.page} pageSize={list.pageSize} total={list.data.total} totalPages={list.data.totalPages} onPage={list.setPage} busy={list.isFetching} />
       </div>
 
       <Modal

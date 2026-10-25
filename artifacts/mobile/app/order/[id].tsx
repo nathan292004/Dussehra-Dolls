@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import Colors from "@/constants/colors";
 import { useAuth, getApiBase } from "@/context/auth";
+import { useRefreshControl } from "@/hooks/use-refresh-control";
+import { formatDateIST } from "@/lib/time";
 
 const STATUS_STEPS = ["pending", "confirmed", "processing", "shipped", "delivered"];
 
@@ -40,16 +42,17 @@ export default function OrderDetailScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`${getApiBase()}/orders/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) setOrder(await res.json());
-      } catch { /* ignore */ } finally { setIsLoading(false); }
-    })();
+  const loadOrder = useCallback(async () => {
+    try {
+      const res = await fetch(`${getApiBase()}/orders/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setOrder(await res.json());
+    } catch { /* ignore */ } finally { setIsLoading(false); }
   }, [id, token]);
+
+  useEffect(() => { void loadOrder(); }, [loadOrder]);
+  const refreshControl = useRefreshControl(loadOrder);
 
   const currentStep = STATUS_STEPS.indexOf(order?.status || "pending");
 
@@ -79,7 +82,7 @@ export default function OrderDetailScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 20 }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 20 }]} refreshControl={refreshControl}>
         <View style={styles.successCard}>
           <View style={styles.successIcon}>
             <Ionicons name="checkmark" size={40} color="#fff" />
@@ -173,7 +176,7 @@ export default function OrderDetailScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.detailLabel}>Order Date</Text>
                 <Text style={styles.detailValue}>
-                  {new Date(order.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}
+                  {formatDateIST(order.createdAt)}
                 </Text>
               </View>
             </View>

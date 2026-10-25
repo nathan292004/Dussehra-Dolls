@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import Colors from "@/constants/colors";
 import { useAuth, getApiBase } from "@/context/auth";
+import { useRefreshControl } from "@/hooks/use-refresh-control";
+import { formatDateIST } from "@/lib/time";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "#F39C12",
@@ -31,15 +33,31 @@ export default function OrdersScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  useEffect(() => {
-    (async () => {
-      if (!token) { setIsLoading(false); return; }
-      try {
-        const res = await fetch(`${getApiBase()}/orders`, { headers: { Authorization: `Bearer ${token}` } });
-        if (res.ok) setOrders(await res.json());
-      } catch { /* ignore */ } finally { setIsLoading(false); }
-    })();
+  const [loadingMore, setLoadingMore] = useState(false);
+  const pageRef = useRef(1);
+  const hasMoreRef = useRef(true);
+  const busyRef = useRef(false);
+
+  // Orders come 20 at a time, newest first; scrolling down loads older ones.
+  const loadOrders = useCallback(async (append = false) => {
+    if (!token) { setIsLoading(false); return; }
+    if (busyRef.current || (append && !hasMoreRef.current)) return;
+    busyRef.current = true;
+    const page = append ? pageRef.current + 1 : 1;
+    if (append) setLoadingMore(true);
+    try {
+      const res = await fetch(`${getApiBase()}/orders?page=${page}&pageSize=20`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const rows: Order[] = await res.json();
+        pageRef.current = page;
+        hasMoreRef.current = rows.length === 20;
+        setOrders((prev) => append ? [...prev, ...rows.filter((o) => !prev.some((p) => p.id === o.id))] : rows);
+      }
+    } catch { /* ignore */ } finally { busyRef.current = false; setIsLoading(false); setLoadingMore(false); }
   }, [token]);
+
+  useEffect(() => { void loadOrders(); }, [loadOrders]);
+  const refreshControl = useRefreshControl(() => loadOrders());
 
   if (isLoading) return <View style={[styles.loader, { paddingTop: topPad }]}><ActivityIndicator size="large" color={Colors.light.tint} /></View>;
 
@@ -53,6 +71,10 @@ export default function OrdersScreen() {
         <View style={{ width: 40 }} />
       </View>
       <FlatList
+        refreshControl={refreshControl}
+        onEndReached={() => void loadOrders(true)}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 16 }} color={Colors.light.tint} /> : null}
         data={orders}
         keyExtractor={item => item.id.toString()}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: bottomPad + 20, gap: 12 }}
@@ -83,7 +105,7 @@ export default function OrdersScreen() {
             </Text>
             <View style={styles.orderFooter}>
               <Text style={styles.orderDate}>
-                {new Date(item.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                {formatDateIST(item.createdAt)}
               </Text>
               <Text style={styles.orderTotal}>₹{item.total.toFixed(0)}</Text>
             </View>

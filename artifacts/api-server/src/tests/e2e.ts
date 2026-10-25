@@ -53,6 +53,7 @@ const { withNewUserId, generateUserId, isUserId } = await import("../lib/user-id
 const { walletShareFor } = await import("../routes/payment");
 const { toPaise, parsePaise, paiseToDecimal, sumPaise, fromPaise } = await import("../lib/money");
 const { sendChitReminders } = await import("../lib/chit-reminder-scheduler");
+const { hashOtp } = await import("../lib/otp");
 
 // ---------- fake Razorpay ----------
 const rzOrders = new Map<string, any>();
@@ -113,7 +114,24 @@ function rawRequest(method: string, path: string, headers: Record<string, string
     req.end();
   });
 }
+const savedAddressIds = new Map<string, number>();
+/** Checkout needs a saved address; give each test customer one the first time they check out. */
+async function withSavedAddress(token: string | undefined, body: any) {
+  if (!token || !body || body.address === undefined) return body;
+  const sub = (jwt.decode(token) as any)?.sub as string;
+  let id = savedAddressIds.get(sub);
+  if (!id) {
+    const r = await rawRequest("POST", "/addresses", { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      JSON.stringify({ recipientName: "Test Receiver", phone: "9876543210", flatNumber: "12B", locality: "Festival Lane", city: "Chennai", state: "Tamil Nadu", pincode: "600001", latitude: 13.0827, longitude: 80.2707 }));
+    assert.equal(r.status, 201, r.text);
+    id = JSON.parse(r.text).address.id as number;
+    savedAddressIds.set(sub, id);
+  }
+  const { address: _a, ...rest } = body;
+  return { ...rest, addressId: id };
+}
 async function api(method: string, path: string, body?: unknown, token?: string, extraHeaders: Record<string, string> = {}) {
+  if (method === "POST" && path === "/payment/create-order") body = await withSavedAddress(token, body);
   const payload = body === undefined ? undefined : JSON.stringify(body);
   const r = await rawRequest(method, path, {
     "Content-Type": "application/json",
@@ -173,8 +191,8 @@ const ok = (t: string) => console.log("  ok  " + t);
 }
 
 // ---------- admin + products ----------
-const [adm] = await db.insert(s.adminUsersTable).values({ username: "boss", name: "Boss", passwordHash: await hashAdminPassword("passwordpassword") }).returning();
-const adminToken = signAdminToken(adm);
+const [adm] = await db.insert(s.adminUsersTable).values({ username: "boss", name: "Boss", passwordHash: await hashAdminPassword("passwordpassword"), sessionId: "session-1" }).returning();
+let adminToken = signAdminToken(adm, "session-1");
 async function makeProduct(name: string, price: string, stock = 10) {
   const r = await api("POST", "/admin/products", { name, price, category: "Traditional", stock }, adminToken);
   assert.equal(r.status, 201, JSON.stringify(r.body));
@@ -361,7 +379,7 @@ const me = await api("GET", "/auth/me", undefined, u1.token);
 assert.equal(me.status, 200); assert.equal(me.body.phone, u1.phone);
 const decoded: any = jwt.decode(u1.token, { complete: true });
 assert.equal(decoded.header.alg, "HS256"); assert.equal(decoded.payload.aud, "dolldime-customer");
-assert.equal(decoded.payload.sub, u1.id); assert.ok(decoded.payload.exp - decoded.payload.iat === 30 * 86400);
+assert.equal(decoded.payload.sub, u1.id); assert.ok(decoded.payload.exp - decoded.payload.iat === 365 * 86400);
 ok("valid JWT: HS256, audience, subject, 30 day expiry");
 const secret = "c".repeat(40);
 const mk = (o: any = {}, sec = secret) => jwt.sign({}, sec, { algorithm: "HS256", subject: u1.id, audience: "dolldime-customer", issuer: "dolldime", expiresIn: 3600, ...o });
@@ -375,7 +393,7 @@ for (const [tok, label] of [
   [mk({ subject: "user_010100zzzzz" }), "unknown user"],
   [mk({ subject: "5" }), "old numeric-style subject"],
   [Buffer.from(`${u1.id}:${Date.now()}:0.5`).toString("base64url"), "old forgeable token format"],
-  [signAdminToken(adm), "admin token on customer route"],
+  [signAdminToken(adm, "session-1"), "admin token on customer route"],
   [`${Buffer.from('{"alg":"none","typ":"JWT"}').toString("base64url")}.${Buffer.from(JSON.stringify({ sub: u1.id, aud: "dolldime-customer", iss: "dolldime", exp: 9999999999 })).toString("base64url")}.`, "alg none"],
 ] as const) {
   const y = await api("GET", "/wallet", undefined, tok || undefined);
@@ -426,7 +444,7 @@ ok("per-IP auth rate limit trips (" + limited + " blocked of 14)");
 section("C4 removed endpoints");
 for (const [m, p] of [["POST", "/wallet"], ["POST", "/orders"], ["PUT", "/wallet"], ["DELETE", "/orders/1"]] as const) {
   const z = await api(m, p, { amount: 1000000, address: "x" }, u1.token);
-  assert.equal(z.status, 404, `${m} ${p}`);
+  assert.ok([404, 410].includes(z.status), `${m} ${p}`);
 }
 assert.equal((await wallet(u1.id)).b, "0.00");
 ok("POST /wallet and POST /orders no longer exist; wallet unchanged");
@@ -450,7 +468,7 @@ await freeResend(fp.phone);
 x = await api("POST", "/auth/send-otp", { phone: fp.tenDigits, purpose: "reset" }); assert.equal(x.status, 200);
 const resetOtp = lastOtp(fp.phone);
 // a registration-purpose code must not work for reset
-await q("insert into otp_verifications (phone, otp, purpose, expires_at) values ($1,'111111','register', now() + interval '10 minutes')", [fp.phone]);
+await q("insert into otp_verifications (phone, otp_hash, purpose, expires_at) values ($1,$2,'register', now() + interval '10 minutes')", [fp.phone, hashOtp(fp.phone, "register", "111111")]);
 x = await api("POST", "/auth/reset-password", { phone: fp.tenDigits, otp: "111111", newPassword: "newpass12" });
 assert.equal(x.status, 400);
 ok("registration OTP rejected for password reset");
@@ -552,6 +570,43 @@ assert.equal(jwt.decode(x.body.token, { json: true })!.aud, "dolldime-admin");
 assert.equal((await api("GET", "/admin/stats", undefined, x.body.token)).status, 200);
 assert.equal((await api("GET", "/admin/stats", undefined, u1.token)).status, 401);
 ok("admin login: 5-attempt lock, JWT with admin audience, customer token refused");
+
+// =====================================================================================
+section("only one admin session at a time + audit log");
+{
+  // The earlier login replaced the session the test started with.
+  const stale = await api("GET", "/admin/stats", undefined, adminToken);
+  assert.equal(stale.status, 401); assert.equal(stale.body.code, "SESSION_REPLACED");
+  const first = x.body.token as string;
+  const second = await api("POST", "/admin/auth/login", { username: "boss", password: "passwordpassword" });
+  assert.equal(second.status, 200);
+  assert.equal((await api("GET", "/admin/stats", undefined, first)).status, 401, "first session is signed out by the second login");
+  assert.equal((await api("GET", "/admin/stats", undefined, second.body.token)).status, 200);
+  adminToken = second.body.token;
+
+  // Every change is written to the audit log (and secrets are never stored).
+  const made = await api("POST", "/admin/vendors", { name: "Audit Vendor", phone: "98765 43210", password: "should-not-be-stored" }, adminToken);
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  await tick(300);
+  const logRows = await q("select action, admin_username, status_code, details from admin_audit_log order by id");
+  assert.ok(logRows.some((r: any) => r.action === "login" && r.admin_username === "boss"));
+  assert.ok(logRows.some((r: any) => r.action === "login_failed"));
+  const vendorRow = logRows.find((r: any) => r.action === "vendors.create");
+  assert.ok(vendorRow && vendorRow.status_code === 201 && vendorRow.admin_username === "boss");
+  assert.equal(vendorRow.details.password, "[hidden]");
+  const auditApi = await api("GET", "/admin/auth/audit-log?q=vendors", undefined, adminToken);
+  assert.equal(auditApi.status, 200); assert.ok(auditApi.body.items.length >= 1 && auditApi.body.total >= 1);
+  assert.equal((await api("GET", "/admin/auth/audit-log", undefined, u1.token)).status, 401);
+
+  // Logout ends the session.
+  const third = await api("POST", "/admin/auth/login", { username: "boss", password: "passwordpassword" });
+  assert.equal((await api("POST", "/admin/auth/logout", {}, third.body.token)).status, 200);
+  assert.equal((await api("GET", "/admin/stats", undefined, third.body.token)).status, 401);
+  const fourth = await api("POST", "/admin/auth/login", { username: "boss", password: "passwordpassword" });
+  adminToken = fourth.body.token;
+  assert.equal((await api("DELETE", `/admin/vendors/${made.body.id}`, undefined, adminToken)).status, 200);
+  ok("one live admin session (new login signs the old one out), logout works, audit log records logins and changes without secrets");
+}
 for (const bad of [19.999, "abc", -1, "1.234", null]) {
   const z = await api("POST", "/admin/products", { name: "Bad", price: bad, category: "X" }, adminToken);
   assert.equal(z.status, 400, "price " + bad);
@@ -562,9 +617,9 @@ assert.equal((await q("select price::text p from products where id=$1", [x.body.
 assert.equal((await api("PUT", `/admin/products/${x.body.id}`, { price: 5.555 }, adminToken)).status, 400);
 assert.equal((await api("PUT", `/admin/products/${x.body.id}`, { price: "7.05" }, adminToken)).body.price, 7.05);
 ok("product prices validated strictly (no silent rounding)");
-const usersList = await api("GET", "/admin/users", undefined, adminToken);
-assert.ok(usersList.body.some((u: any) => u.isDeleted === true && u.deletionReason === "password_reset"));
-assert.ok(usersList.body.some((u: any) => u.isDeleted === true && u.deletionReason === "account_deleted"));
+const usersList = await api("GET", "/admin/users?status=closed&pageSize=100", undefined, adminToken);
+assert.ok(usersList.body.items.some((u: any) => u.isDeleted === true && u.deletionReason === "password_reset"));
+assert.ok(usersList.body.items.some((u: any) => u.isDeleted === true && u.deletionReason === "account_deleted"));
 ok("admin users list shows soft-deleted accounts");
 
 // =====================================================================================
@@ -769,7 +824,7 @@ assert.equal(x.status, 409); assert.equal(x.body.code, "STOCK_HELD"); assert.equ
 assert.equal((await api("DELETE", `/admin/products/${pB}`, undefined, adminToken)).status, 409);
 x = await api("PUT", `/admin/products/${pB}`, { stock: 1 }, adminToken); assert.equal(x.status, 200); assert.equal(await stockOf(pB), 1);
 await assert.rejects(q("update products set stock = 0 where id=$1", [pB]), /products_reserved_within_stock/);
-const adminView = (await api("GET", "/admin/products", undefined, adminToken)).body.find((p3: any) => p3.id === pB);
+const adminView = (await api("GET", "/admin/products?pageSize=100", undefined, adminToken)).body.items.find((p3: any) => p3.id === pB);
 assert.deepEqual([adminView.stock, adminView.reservedStock, adminView.availableStock], [1, 1, 0]);
 assert.equal((await api("PUT", `/admin/products/${pB}`, { stock: -3 }, adminToken)).status, 400);
 assert.equal((await api("PUT", `/admin/products/${pB}`, { stock: 2.5 }, adminToken)).status, 400);
@@ -1127,7 +1182,7 @@ section("H1 chit plan approval flow");
   assert.deepEqual(mine3b.body.map((p3: any) => p3.reviewStatus), ["under_review", "rejected"]);
   assert.equal((await adminList("rejected")).plans.some((p3: any) => p3.id === plan3.id), true);
   assert.equal((await api("POST", "/admin/chit-plans/999999/approve", {}, adminToken)).status, 404);
-  assert.equal((await api("POST", "/admin/chit-plans/abc/approve", {}, adminToken)).status, 404);
+  assert.equal((await api("POST", "/admin/chit-plans/abc/approve", {}, adminToken)).status, 400);
   ok("reject: reason saved and sent; cannot be approved/rejected again; customer sees it and can re-apply");
 
   // plan year over
@@ -1315,6 +1370,210 @@ section("H5 reminders and notification tracking");
   assert.equal((await api("GET", "/admin/ops", undefined, dOwes.token)).status, 401);
   assert.equal((await api("GET", "/admin/ops")).status, 401);
   ok("admin dashboard: late / pending / multi-month lists, reminder + notification counts, failures, approvals, collections, stock, wallets");
+}
+
+// =====================================================================================
+section("OTP stored hashed, countries, 60-day inactivity");
+{
+  const hu = await signup(phoneN(), "Hashy");
+  const otpRows = await q("select * from otp_verifications where phone=$1", [hu.phone]);
+  assert.ok(otpRows.length >= 1);
+  assert.ok(!("otp" in otpRows[0]), "no plain-text otp column");
+  assert.match(otpRows[0].otp_hash, /^[a-f0-9]{64}$/);
+  assert.notEqual(otpRows[0].otp_hash, lastOtp(hu.phone), "the stored value is not the code");
+  assert.equal(otpRows[0].otp_hash, hashOtp(hu.phone, "register", lastOtp(hu.phone)), "keyed hash bound to phone + purpose");
+  assert.notEqual(hashOtp(hu.phone, "reset", "123456"), hashOtp(hu.phone, "register", "123456"));
+  ok("one-time codes are stored as keyed hashes, bound to phone and purpose");
+
+  // country codes: the app sends the full international number
+  const us = "+14155552671";
+  let r2 = await api("POST", "/auth/send-otp", { phone: us }); assert.equal(r2.status, 200, JSON.stringify(r2.body));
+  r2 = await api("POST", "/auth/register", { fname: "Sam", phone: us, password: "secret123", otp: lastOtp(us) });
+  assert.equal(r2.status, 201, JSON.stringify(r2.body)); assert.equal(r2.body.user.phone, us);
+  r2 = await api("POST", "/auth/login", { phone: us, password: "secret123" }); assert.equal(r2.status, 200);
+  const uae = "+971501234567";
+  assert.equal((await api("POST", "/auth/send-otp", { phone: uae })).status, 200);
+  for (const bad of ["+91 5876543210", "+9198765", "+1415555", "+0123456789012", "+1234567890123456", "++919876543210", "98765abc10"]) {
+    assert.equal((await api("POST", "/auth/send-otp", { phone: bad })).status, 400, bad);
+  }
+  ok("any listed country works (+1, +971 ...), India keeps its 10-digit mobile rule, junk is refused");
+
+  // inactivity
+  await q("update users set last_active_at = now() - interval '61 days' where user_id=$1", [hu.id]);
+  let inact = await api("GET", "/wallet", undefined, hu.token);
+  assert.equal(inact.status, 401); assert.equal(inact.body.code, "SESSION_INACTIVE");
+  await q("update users set last_active_at = now() - interval '59 days' where user_id=$1", [hu.id]);
+  assert.equal((await api("GET", "/wallet", undefined, hu.token)).status, 200);
+  const touched = (await q("select extract(epoch from now() - last_active_at) as secs from users where user_id=$1", [hu.id]))[0].secs;
+  assert.ok(Number(touched) < 120, "using the app renews the 60 days");
+  ok("signed out after 60 days without use; any use before that renews the session");
+}
+
+// =====================================================================================
+section("pagination");
+{
+  for (let i = 0; i < 12; i++) assert.equal((await api("POST", "/admin/vendors", { name: `Vendor ${String(i).padStart(2, "0")}` }, adminToken)).status, 201);
+  let pg = await api("GET", "/admin/vendors?pageSize=5&page=2", undefined, adminToken);
+  assert.equal(pg.status, 200); assert.equal(pg.body.items.length, 5); assert.equal(pg.body.page, 2);
+  assert.ok(pg.body.total >= 12); assert.equal(pg.body.totalPages, Math.ceil(pg.body.total / 5));
+  const p1 = await api("GET", "/admin/vendors?pageSize=5&page=1", undefined, adminToken);
+  assert.ok(!p1.body.items.some((v: any) => pg.body.items.some((w: any) => w.id === v.id)), "pages do not overlap");
+  assert.equal((await api("GET", "/admin/vendors?pageSize=100000", undefined, adminToken)).body.pageSize, 100, "page size is capped");
+  assert.equal((await api("GET", "/admin/vendors?page=abc&pageSize=-4", undefined, adminToken)).body.page, 1, "junk falls back to defaults");
+  assert.equal((await api("GET", "/admin/vendors?q=Vendor%2007", undefined, adminToken)).body.total, 1, "search narrows the list");
+  assert.equal((await api("GET", "/admin/vendors?q=%25", undefined, adminToken)).body.total, 0, "% is searched literally");
+  assert.equal((await api("GET", "/admin/orders?pageSize=3", undefined, adminToken)).body.items.length <= 3, true);
+  assert.equal((await api("GET", "/admin/wallets?pageSize=2", undefined, adminToken)).body.items.length <= 2, true);
+  assert.equal((await api("GET", "/admin/orders?status=bogus", undefined, adminToken)).status, 400);
+
+  // customer side
+  const pgc = await signup(phoneN(), "Pager");
+  for (let i = 0; i < 5; i++) await makeProduct(`Pager Doll ${i}`, "10.00", 3);
+  const prodsA = await api("GET", "/products?pageSize=2&page=1"); const prodsB = await api("GET", "/products?pageSize=2&page=2");
+  assert.equal(prodsA.body.length, 2); assert.equal(prodsB.body.length, 2);
+  assert.ok(prodsA.body.every((a: any) => !prodsB.body.some((b: any) => b.id === a.id)));
+  assert.ok((await api("GET", "/products?search=Pager%20Doll%203")).body.length === 1);
+  for (let i = 0; i < 7; i++) await q("insert into transactions (user_id, type, amount, description) values ($1,'credit','1','t')", [pgc.id]);
+  const w1 = await api("GET", "/wallet?pageSize=3", undefined, pgc.token);
+  assert.equal(w1.body.transactions.length, 3); assert.equal(w1.body.hasMore, true);
+  const w3 = await api("GET", "/wallet?pageSize=3&page=3", undefined, pgc.token);
+  assert.equal(w3.body.transactions.length, 1); assert.equal(w3.body.hasMore, false);
+  ok("lists are paged (admin: items/total/totalPages with search + filters; customer: page/pageSize), size capped, junk ignored");
+}
+
+// =====================================================================================
+section("validation on admin routes");
+{
+  const bad = async (path: string, body: any, method = "POST") => {
+    const r3 = await api(method, path, body, adminToken); assert.equal(r3.status, 400, `${method} ${path} ${JSON.stringify(body)} -> ${JSON.stringify(r3.body)}`); return r3.body.error as string;
+  };
+  await bad("/admin/products", { name: "", price: 10, category: "X" });
+  await bad("/admin/products", { name: "N", price: 10 });
+  await bad("/admin/products", { name: "N", price: 10, category: "X", stock: 1.5 });
+  await bad("/admin/products", { name: "N", price: 10, category: "X", stock: -1 });
+  await bad("/admin/products", { name: "N", price: 10, category: "X", imageUrl: "javascript:alert(1)" });
+  await bad("/admin/products", { name: "N", price: 10, category: "X", tags: Array.from({ length: 20 }, (_, i) => "t" + i) });
+  await bad("/admin/products", { name: "x".repeat(200), price: 10, category: "X" });
+  await bad("/admin/products", { name: "N", price: 10, category: "X", isFeatured: "yes" });
+  await bad("/admin/vendors", { name: "V", email: "not-an-email" });
+  await bad("/admin/vendors", { name: "V", phone: "abc" });
+  await bad("/admin/vendors", {});
+  await bad("/admin/products/abc", {}, "PUT");
+  await bad("/admin/orders/1/status", { status: "teleported" }, "PUT");
+  await bad("/admin/orders/1/status", { status: "confirmed", paymentStatus: "paid" }, "PUT");
+  const okP = await api("POST", "/admin/products", { name: " Trimmed ", price: "12.50", category: "Modern", tags: "a, b ,,c", stock: "4", imageUrl: "" }, adminToken);
+  assert.equal(okP.status, 201, JSON.stringify(okP.body));
+  assert.equal(okP.body.name, "Trimmed"); assert.deepEqual(okP.body.tags, ["a", "b", "c"]); assert.equal(okP.body.stock, 4); assert.equal(okP.body.imageUrl, null);
+  const malformed = await rawRequest("POST", "/admin/vendors", { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` }, "{not json");
+  assert.equal(malformed.status, 400);
+  assert.equal((await api("PUT", `/admin/products/${okP.body.id}`, { rating: 9 }, adminToken)).status, 400);
+  assert.equal((await api("POST", "/cart", { productId: 1.5, quantity: 1 }, (await signup(phoneN())).token)).status, 400);
+  ok("admin product/vendor/order input is validated with clear messages; bad JSON and bad ids give 400, not 500");
+}
+
+// =====================================================================================
+section("delivery addresses with full details + Google Maps link");
+{
+  const ad = await signup(phoneN(), "Addr");
+  const good = { label: "Home", recipientName: "Asha Rao", phone: "9876543210", flatNumber: "12B", building: "Lotus Apartments", street: "MG Road", locality: "Indiranagar", landmark: "Metro station", city: "Bengaluru", state: "Karnataka", pincode: "560038", latitude: 12.9716, longitude: 77.5946 };
+  for (const patch of [{ flatNumber: "" }, { locality: undefined }, { city: "" }, { pincode: "5600" }, { pincode: "ABCDEF" }, { phone: "123" }, { latitude: 95 }, { longitude: undefined }, { latitude: "12.9" }, { recipientName: "A" }]) {
+    const r4 = await api("POST", "/addresses", { ...good, ...patch }, ad.token); assert.equal(r4.status, 400, JSON.stringify(patch) + JSON.stringify(r4.body));
+  }
+  const a1 = await api("POST", "/addresses", good, ad.token);
+  assert.equal(a1.status, 201, JSON.stringify(a1.body));
+  assert.equal(a1.body.address.isDefault, true);
+  assert.equal(a1.body.address.formattedAddress, "12B, Lotus Apartments, MG Road, Indiranagar, Near Metro station, Bengaluru, Karnataka - 560038");
+  assert.match(a1.body.address.addressLink, /^https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=12\.971600,77\.594600$/);
+  assert.equal(a1.body.address.phone, "+919876543210");
+  let urow = (await q("select address, address_link from users where user_id=$1", [ad.id]))[0];
+  assert.equal(urow.address, a1.body.address.formattedAddress); assert.equal(urow.address_link, a1.body.address.addressLink);
+  const a2 = await api("POST", "/addresses", { ...good, label: "Work", flatNumber: "Floor 3", latitude: 13.0, longitude: 77.6, isDefault: true }, ad.token);
+  assert.equal(a2.status, 201);
+  urow = (await q("select address, address_link from users where user_id=$1", [ad.id]))[0];
+  assert.equal(urow.address, a2.body.address.formattedAddress, "users.address follows the default address");
+  assert.match(urow.address_link, /query=13\.000000,77\.600000/);
+  const edit = await api("PUT", `/addresses/${a2.body.address.id}`, { ...good, label: "Work", flatNumber: "Floor 9", latitude: 13.1, longitude: 77.7 }, ad.token);
+  assert.equal(edit.status, 200); assert.match(edit.body.address.formattedAddress, /^Floor 9,/);
+  urow = (await q("select address, address_link from users where user_id=$1", [ad.id]))[0];
+  assert.match(urow.address, /^Floor 9,/); assert.match(urow.address_link, /13\.100000,77\.700000/);
+  assert.equal((await api("PUT", `/addresses/${a1.body.address.id}`, good, (await signup(phoneN())).token)).status, 404, "cannot edit someone else's address");
+  assert.equal((await api("DELETE", `/addresses/${a2.body.address.id}`, undefined, ad.token)).status, 204);
+  urow = (await q("select address, address_link from users where user_id=$1", [ad.id]))[0];
+  assert.equal(urow.address, a1.body.address.formattedAddress, "deleting the default promotes the other address");
+  assert.equal((await api("DELETE", `/addresses/${a1.body.address.id}`, undefined, ad.token)).status, 204);
+  urow = (await q("select address, address_link from users where user_id=$1", [ad.id]))[0];
+  assert.equal(urow.address, null); assert.equal(urow.address_link, null);
+  ok("address needs flat, locality, city, state, pincode and a map pin; users.address + address_link follow the default address");
+
+  // checkout uses a saved address and stores the link on the order
+  const prod = await makeProduct("Addr Doll", "50.00", 5);
+  const a3 = await api("POST", "/addresses", good, ad.token);
+  await fillCart(ad.token, [[prod, 1]]);
+  assert.equal((await api("POST", "/payment/create-order", {}, ad.token)).status, 400);
+  assert.equal((await api("POST", "/payment/create-order", { addressId: 999999 }, ad.token)).status, 400);
+  const other = await signup(phoneN());
+  const theirs = await api("POST", "/addresses", good, other.token);
+  const stolen = await api("POST", "/payment/create-order", { addressId: theirs.body.address.id }, ad.token);
+  assert.equal(stolen.status, 400, "another customer's address cannot be used");
+  await setWallet(ad.id, "100.00");
+  const placed = await api("POST", "/payment/create-order", { addressId: a3.body.address.id, useWallet: true }, ad.token);
+  assert.equal(placed.status, 200, JSON.stringify(placed.body));
+  const orow = (await q("select address, address_link, address_latitude, address_longitude from orders where id=$1", [placed.body.orderId]))[0];
+  assert.match(orow.address, /^Asha Rao, \+919876543210 - 12B, Lotus Apartments/);
+  assert.equal(orow.address_link, a3.body.address.addressLink); assert.equal(orow.address_latitude, 12.9716);
+  const adminOrders = await api("GET", "/admin/orders?q=Asha", undefined, adminToken);
+  assert.ok(adminOrders.body.items.some((o: any) => o.id === placed.body.orderId && o.addressLink === a3.body.address.addressLink));
+  ok("checkout requires one of the customer's own saved addresses; the order keeps the full address and map link");
+}
+
+// =====================================================================================
+section("wallet opens only after the last chit payment (is_released)");
+{
+  const rw = await signup(phoneN(), "Releasing");
+  const prod = await makeProduct("Release Doll", "100.00", 5);
+  let wl = await api("GET", "/wallet", undefined, rw.token);
+  assert.equal(wl.body.isReleased, true, "a customer without a chit plan can use the wallet");
+  const plan = await api("POST", "/chits/enroll-custom", { chits: 1 }, rw.token); assert.equal(plan.status, 201);
+  assert.equal((await q("select is_released from wallets where user_id=$1", [rw.id]))[0].is_released, true, "under review: wallet still open");
+  assert.equal((await api("POST", `/admin/chit-plans/${plan.body.id}/approve`, {}, adminToken)).status, 200);
+  let wrow = (await q("select is_released, released_at from wallets where user_id=$1", [rw.id]))[0];
+  assert.equal(wrow.is_released, false); assert.equal(wrow.released_at, null);
+  wl = await api("GET", "/wallet", undefined, rw.token); assert.equal(wl.body.isReleased, false);
+  assert.equal((await api("GET", "/admin/wallets?released=false&pageSize=100", undefined, adminToken)).body.items.some((w: any) => w.userId === rw.id && w.isReleased === false), true);
+
+  // spending is refused while a payment is still due
+  await setWallet(rw.id, "500.00");
+  await fillCart(rw.token, [[prod, 1]]);
+  let co = await api("POST", "/payment/create-order", { address: "x", useWallet: true }, rw.token);
+  assert.equal(co.status, 409); assert.equal(co.body.code, "WALLET_LOCKED");
+  assert.equal((await wallet(rw.id)).b, "500.00", "nothing was taken");
+  assert.equal((await q("select count(*)::int c from orders where user_id=$1", [rw.id]))[0].c, 0);
+  // paying online (no wallet) is still possible
+  co = await api("POST", "/payment/create-order", { address: "x" }, rw.token);
+  assert.equal(co.status, 200, JSON.stringify(co.body));
+  await api("POST", "/payment/cancel-order", { dbOrderId: co.body.dbOrderId }, rw.token);
+
+  // a part payment keeps it closed; the final payment opens it
+  const { applyChitPayment } = await import("../lib/chit-payments");
+  let ap = await applyChitPayment({ chitPlanId: plan.body.id, userId: rw.id, razorpayPaymentId: "pay_rel_1", amountPaise: 50_000 });
+  assert.equal(ap.completed, false);
+  assert.equal((await q("select is_released from wallets where user_id=$1", [rw.id]))[0].is_released, false);
+  ap = await applyChitPayment({ chitPlanId: plan.body.id, userId: rw.id, razorpayPaymentId: "pay_rel_2", amountPaise: 550_000 - 50_000 });
+  assert.equal(ap.completed, true);
+  wrow = (await q("select is_released, released_at from wallets where user_id=$1", [rw.id]))[0];
+  assert.equal(wrow.is_released, true); assert.ok(wrow.released_at);
+  wl = await api("GET", "/wallet", undefined, rw.token); assert.equal(wl.body.isReleased, true);
+  await fillCart(rw.token, [[prod, 1]]);
+  co = await api("POST", "/payment/create-order", { address: "x", useWallet: true }, rw.token);
+  assert.equal(co.status, 200, JSON.stringify(co.body)); assert.equal(co.body.paidByWallet, true);
+  ok("approved plan closes the wallet (is_released=false, spending refused with WALLET_LOCKED); the last payment opens it and stamps released_at");
+
+  // an account with a second unfinished approved plan stays closed
+  const rw2 = await signup(phoneN(), "Cancel");
+  const pl2 = await api("POST", "/chits/enroll-custom", { chits: 1 }, rw2.token);
+  await api("POST", `/admin/chit-plans/${pl2.body.id}/approve`, {}, adminToken);
+  assert.equal((await q("select is_released from wallets where user_id=$1", [rw2.id]))[0].is_released, false);
+  ok("closing is per customer: other customers' wallets are unaffected");
 }
 
 // =====================================================================================

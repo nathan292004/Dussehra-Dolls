@@ -4,10 +4,10 @@ import { usersTable } from "./users";
 export const whatsappPreferencesTable = pgTable("whatsapp_preferences", {
   userId: text("user_id").primaryKey().references(() => usersTable.userId),
   orderUpdates: boolean("order_updates").notNull().default(false),
-  orderUpdatesOptedAt: timestamp("order_updates_opted_at"),
+  orderUpdatesOptedAt: timestamp("order_updates_opted_at", { withTimezone: true }),
   marketing: boolean("marketing").notNull().default(false),
-  marketingOptedAt: timestamp("marketing_opted_at"),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  marketingOptedAt: timestamp("marketing_opted_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 // Durable queue. Provider API acceptance and delivery are separate states.
@@ -20,7 +20,7 @@ export const whatsappCampaignsTable = pgTable("whatsapp_campaigns", {
   templateLanguage: text("template_language").notNull(),
   templateBody: text("template_body").notNull(),
   recipientCount: integer("recipient_count").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const whatsappMessagesTable = pgTable("whatsapp_messages", {
@@ -34,8 +34,8 @@ export const whatsappMessagesTable = pgTable("whatsapp_messages", {
   providerSid: text("provider_sid").unique(),
   providerErrorCode: text("provider_error_code"),
   attempts: integer("attempts").notNull().default(0),
-  nextAttemptAt: timestamp("next_attempt_at").defaultNow().notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, table => [index("whatsapp_messages_ready_idx").on(table.status, table.nextAttemptAt, table.id),
   index("whatsapp_messages_campaign_idx").on(table.campaignId, table.status)]);

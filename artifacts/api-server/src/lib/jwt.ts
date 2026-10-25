@@ -3,15 +3,19 @@ import jwt from "jsonwebtoken";
 
 // Two kinds of signed tokens, each with its own secret and audience, so a customer token
 // can never be used as an admin token (or the other way round).
-//   customer: JWT_SECRET        (aud "dolldime-customer", 30 days)
+//   customer: JWT_SECRET        (aud "dolldime-customer", up to 1 year, see below)
 //   admin:    ADMIN_TOKEN_SECRET (aud "dolldime-admin",    12 hours)
 // Only HS256 is accepted when verifying, which blocks "alg: none" and algorithm-swap tricks.
+//
+// Customer sessions are "sliding": the token itself is long-lived, but the server signs a customer
+// out after CUSTOMER_INACTIVITY_DAYS (60) without use (middlewares/auth.ts). Every use renews it.
 const ISSUER = "dolldime";
+export const CUSTOMER_INACTIVITY_DAYS = 60;
 
 export type TokenKind = "customer" | "admin";
 
 const CONFIG: Record<TokenKind, { env: string; audience: string; expiresInSeconds: number }> = {
-  customer: { env: "JWT_SECRET", audience: "dolldime-customer", expiresInSeconds: 30 * 24 * 60 * 60 },
+  customer: { env: "JWT_SECRET", audience: "dolldime-customer", expiresInSeconds: 365 * 24 * 60 * 60 },
   admin: { env: "ADMIN_TOKEN_SECRET", audience: "dolldime-admin", expiresInSeconds: 12 * 60 * 60 },
 };
 
@@ -36,6 +40,11 @@ function secretFor(kind: TokenKind): string {
   }
   cachedSecrets[kind] = secret;
   return secret;
+}
+
+/** The signing secret, for keyed hashes made elsewhere (one-time codes). */
+export function signingSecret(kind: TokenKind): string {
+  return secretFor(kind);
 }
 
 /** Call at startup so a missing secret in production stops the server immediately. */

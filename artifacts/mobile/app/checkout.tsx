@@ -18,9 +18,8 @@ import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { useAuth, getApiBase } from "@/context/auth";
 import { useCart } from "@/context/cart";
-import AddressMapPicker, { type PickedAddress } from "@/components/address-map-picker";
-
-type SavedAddress = PickedAddress & { id: number; label: string; recipientName: string; phone: string; isDefault: boolean };
+import { useRefreshControl } from "@/hooks/use-refresh-control";
+import type { SavedAddress } from "@/app/addresses";
 
 // Mirrors the server: the wallet pays first, but the part left for the online payment must be at least ₹1.
 function walletShare(spendablePaise: number, totalPaise: number) {
@@ -37,12 +36,10 @@ export default function CheckoutScreen() {
   const insets = useSafeAreaInsets();
   const { token } = useAuth();
   const { cart, fetchCart } = useCart();
-  const [wallet, setWallet] = useState<{ balance: number; lockedBalance: number } | null>(null);
+  const [wallet, setWallet] = useState<{ balance: number; lockedBalance: number; isReleased: boolean } | null>(null);
   const [useWallet, setUseWallet] = useState(true);
-  const [address, setAddress] = useState("");
-  const [pin, setPin] = useState<PickedAddress | null>(null);
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
-  const [showMap, setShowMap] = useState(false);
+  const [addressId, setAddressId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -54,7 +51,7 @@ export default function CheckoutScreen() {
       const res = await fetch(`${getApiBase()}/wallet`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
         const data = await res.json();
-        setWallet({ balance: data.balance ?? 0, lockedBalance: data.lockedBalance ?? 0 });
+        setWallet({ balance: data.balance ?? 0, lockedBalance: data.lockedBalance ?? 0, isReleased: data.isReleased !== false });
       }
     } catch { /* checkout still works without the wallet */ }
   }, [token]);
@@ -67,31 +64,34 @@ export default function CheckoutScreen() {
       const data = await res.json();
       const rows: SavedAddress[] = data?.addresses || [];
       setSavedAddresses(rows);
-      const preferred = rows.find((item) => item.isDefault) ?? rows[0];
-      if (preferred) {
-        setAddress(preferred.formattedAddress);
-        setPin({ formattedAddress: preferred.formattedAddress, latitude: preferred.latitude, longitude: preferred.longitude });
-      }
+      // Keep the chosen address if it still exists, otherwise use the default (or the first) one.
+      setAddressId((current) => {
+        if (current && rows.some((r) => r.id === current)) return current;
+        return (rows.find((item) => item.isDefault) ?? rows[0])?.id ?? null;
+      });
     } catch { /* checkout still works without saved addresses */ }
   }, [token]);
 
   useFocusEffect(useCallback(() => { void loadWallet(); void loadAddresses(); }, [loadWallet, loadAddresses]));
+  const refreshControl = useRefreshControl(() => Promise.all([loadWallet(), loadAddresses(), fetchCart()]));
 
   const totalPaise = Math.round(cart.total * 100);
   const spendablePaise = Math.round((wallet?.balance ?? 0) * 100);
   const lockedPaise = Math.round((wallet?.lockedBalance ?? 0) * 100);
-  const walletPaise = useWallet ? walletShare(spendablePaise, totalPaise) : 0;
+  // The wallet opens only after the last chit payment (is_released), so it cannot be used before that.
+  const walletLocked = wallet?.isReleased === false;
+  const walletPaise = useWallet && !walletLocked ? walletShare(spendablePaise, totalPaise) : 0;
   const onlinePaise = totalPaise - walletPaise;
 
   const proceedToPayment = async () => {
-    if (address.trim().length < 10 || !pin) { setError("Choose and confirm your delivery pin on Google Maps"); return; }
+    if (!addressId) { setError("Add a delivery address to continue"); return; }
     setError("");
     setIsLoading(true);
     try {
       const res = await fetch(`${getApiBase()}/payment/create-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ address, useWallet: walletPaise > 0, latitude: pin.latitude, longitude: pin.longitude }),
+        body: JSON.stringify({ addressId, useWallet: walletPaise > 0 }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -99,6 +99,7 @@ export default function CheckoutScreen() {
         void loadWallet();
         // Something ran out of stock (or changed): refresh the cart so it shows what can still be bought.
         if (err.code === "OUT_OF_STOCK") await fetchCart();
+        if (err.code === "ADDRESS_REQUIRED") void loadAddresses();
         return;
       }
       const data = await res.json();
@@ -141,7 +142,7 @@ export default function CheckoutScreen() {
           <View style={{ width: 40 }} />
         </View>
 
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 190 }]}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 190 }]} refreshControl={refreshControl} keyboardShouldPersistTaps="handled">
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Order Summary</Text>
             {cart.items.map(item => (
@@ -159,35 +160,40 @@ export default function CheckoutScreen() {
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Delivery Address</Text>
-            {savedAddresses.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.savedAddresses}>
-              {savedAddresses.map(saved => <Pressable key={saved.id} style={[styles.savedAddress, address === saved.formattedAddress && styles.savedAddressSelected]}
-                onPress={() => { setAddress(saved.formattedAddress); setPin({ formattedAddress: saved.formattedAddress, latitude: saved.latitude, longitude: saved.longitude }); setShowMap(false); setError(""); }}>
-                <Text style={styles.savedAddressLabel}>{saved.label}{saved.isDefault ? " · Default" : ""}</Text>
-                <Text style={styles.savedAddressValue} numberOfLines={2}>{saved.formattedAddress}</Text>
-              </Pressable>)}
-            </ScrollView> : null}
-            <TextInput
-              style={styles.addressInput}
-              value={address}
-              onChangeText={value => { setAddress(value); setPin(null); }}
-              placeholder="Enter your full delivery address..."
-              placeholderTextColor={Colors.light.textMuted}
-              multiline
-              numberOfLines={3}
-            />
-            <Pressable style={styles.mapToggle} onPress={() => { setShowMap(value => !value); setError(""); }}>
-              <Ionicons name="map-outline" size={18} color={Colors.light.tint} />
-              <Text style={styles.mapToggleText}>{showMap ? "Hide map" : pin ? "Adjust pin on Google Maps" : "Choose exact location on Google Maps"}</Text>
-              <Ionicons name={showMap ? "chevron-up" : "chevron-down"} size={16} color={Colors.light.tint} />
-            </Pressable>
-            {showMap ? <AddressMapPicker initial={pin || undefined} onSelect={picked => { setPin(picked); setAddress(picked.formattedAddress); setError(""); }} /> : null}
-            {pin ? <View style={styles.pinConfirmation}><Ionicons name="checkmark-circle" size={17} color={Colors.light.tint} />
-              <Text style={styles.pinText}>Delivery pin selected · {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}</Text></View> :
-              <Text style={styles.mapHelp}>Pick a place on the map to save its exact location with your order.</Text>}
+            <View style={styles.addressHeader}>
+              <Text style={styles.sectionTitle}>Delivery Address</Text>
+              <Pressable onPress={() => router.push("/addresses")} hitSlop={8}>
+                <Text style={styles.manageLink}>{savedAddresses.length ? "Manage" : "Add address"}</Text>
+              </Pressable>
+            </View>
+            {savedAddresses.length ? savedAddresses.map(saved => (
+              <Pressable key={saved.id} style={[styles.addressOption, addressId === saved.id && styles.addressOptionSelected]}
+                onPress={() => { setAddressId(saved.id); setError(""); Haptics.selectionAsync(); }}>
+                <Ionicons name={addressId === saved.id ? "radio-button-on" : "radio-button-off"} size={20} color={Colors.light.tint} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.savedAddressLabel}>{saved.label}{saved.isDefault ? " · Default" : ""} · {saved.recipientName}</Text>
+                  <Text style={styles.savedAddressValue}>{saved.formattedAddress}</Text>
+                  <Text style={styles.mapHelp}>{saved.phone}</Text>
+                </View>
+              </Pressable>
+            )) : (
+              <Pressable style={styles.mapToggle} onPress={() => router.push("/addresses")}>
+                <Ionicons name="add-circle-outline" size={18} color={Colors.light.tint} />
+                <Text style={styles.mapToggleText}>Add your delivery address (flat number, locality, map pin)</Text>
+              </Pressable>
+            )}
           </View>
 
-          {wallet && spendablePaise > 0 ? (
+          {wallet && walletLocked && spendablePaise > 0 ? (
+            <View style={styles.lockedNote}>
+              <Ionicons name="lock-closed-outline" size={16} color="#b45309" />
+              <Text style={styles.lockedNoteText}>
+                Your wallet ({inr(spendablePaise)}) opens after your last chit payment in August. For now, pay online.
+              </Text>
+            </View>
+          ) : null}
+
+          {wallet && !walletLocked && spendablePaise > 0 ? (
             <View style={styles.section}>
               <View style={styles.walletHeader}>
                 <Ionicons name="wallet-outline" size={20} color={Colors.light.tint} />
@@ -279,6 +285,10 @@ export default function CheckoutScreen() {
 }
 
 const styles = StyleSheet.create({
+  addressHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  manageLink: { color: Colors.light.tint, fontSize: 13, fontWeight: "600" },
+  addressOption: { flexDirection: "row", gap: 10, alignItems: "flex-start", padding: 12, borderRadius: 12, borderWidth: 1, borderColor: Colors.light.border, backgroundColor: Colors.light.surface },
+  addressOptionSelected: { borderColor: Colors.light.tint, backgroundColor: Colors.light.tintLight },
   container: { flex: 1, backgroundColor: Colors.light.background },
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 12 },
   backBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.light.border },

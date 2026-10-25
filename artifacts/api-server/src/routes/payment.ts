@@ -6,9 +6,10 @@ import {
   cartItemsTable,
   chitPlansTable,
   walletsTable,
+  customerAddressesTable,
 } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
-import { authMiddleware, AuthRequest } from "../middlewares/auth";
+import { authMiddleware } from "../middlewares/auth";
 import { razorpay } from "../lib/razorpay";
 import {
   ChitPaymentError,
@@ -32,7 +33,7 @@ import {
 import { fromPaise, paiseToDecimal, parsePaise, sumPaise, toPaise } from "../lib/money";
 
 const router = Router();
-router.use(authMiddleware as any);
+router.use(authMiddleware);
 
 router.use((_req, res, next) => {
   if (!razorpay) {
@@ -47,7 +48,7 @@ router.use((_req, res, next) => {
 // Razorpay will not take an online payment below ₹1.
 const MIN_ONLINE_PAISE = 100;
 const MAX_WALLET_TOPUP_PAISE = 50_000_00; // ₹50,000 per top-up
-const MAX_ADDRESS_LENGTH = 250; // also the limit for a Razorpay note value
+const MAX_NOTE_LENGTH = 250; // Razorpay note values are limited to 256 characters
 
 function validSignature(orderId: unknown, paymentId: unknown, signature: unknown): boolean {
   if (
@@ -64,16 +65,6 @@ function validSignature(orderId: unknown, paymentId: unknown, signature: unknown
   return crypto.timingSafeEqual(expected, Buffer.from(signature, "hex"));
 }
 
-/** A latitude/longitude pin is optional, but if given at all it must be a valid coordinate. */
-function validPin(latitude: unknown, longitude: unknown): boolean {
-  if (latitude === undefined && longitude === undefined) return true;
-  return (
-    typeof latitude === "number" && typeof longitude === "number" &&
-    Number.isFinite(latitude) && latitude >= -90 && latitude <= 90 &&
-    Number.isFinite(longitude) && longitude >= -180 && longitude <= 180
-  );
-}
-
 /**
  * How much of an order the wallet pays. Only the spendable balance counts (never money locked
  * in a chit plan). The part left for the online payment must be at least ₹1, so if the wallet
@@ -88,21 +79,36 @@ export function walletShareFor(spendablePaise: number, totalPaise: number): numb
   return Math.max(0, share);
 }
 
+/** The wallet stays closed until every payment of the customer's chit plan is made. */
+const walletLocked = () =>
+  new OrderPaymentError(
+    "Your wallet opens after your last chit payment in August is completed. Until then you can pay online.",
+    409,
+    "WALLET_LOCKED",
+  );
+
 // ─── Shop checkout ───────────────────────────────────────────────────────────
 // Create an order from the cart. With useWallet:true the spendable wallet balance pays first:
 //   - wallet covers everything -> the order is confirmed straight away, no online payment;
 //   - wallet covers part      -> the wallet part is held now and the rest is paid online.
-router.post("/create-order", async (req: AuthRequest, res) => {
+router.post("/create-order", async (req, res) => {
   try {
-    const address = typeof req.body?.address === "string" ? req.body.address.trim() : "";
-    if (!address) return res.status(400).json({ error: "Delivery address is required" });
-    if (address.length > MAX_ADDRESS_LENGTH) {
-      return res.status(400).json({ error: `Address must be at most ${MAX_ADDRESS_LENGTH} characters` });
+    // The customer picks one of their saved delivery addresses (flat number, locality, pincode, map pin ...).
+    const addressId = Number(req.body?.addressId);
+    if (!Number.isInteger(addressId) || addressId < 1) {
+      return res.status(400).json({ error: "Please choose a delivery address", code: "ADDRESS_REQUIRED" });
     }
-    const { latitude, longitude } = req.body ?? {};
-    if (!validPin(latitude, longitude)) {
-      return res.status(400).json({ error: "Selected map location is invalid" });
-    }
+    const [saved] = await db
+      .select()
+      .from(customerAddressesTable)
+      .where(and(eq(customerAddressesTable.id, addressId), eq(customerAddressesTable.userId, req.userId!)))
+      .limit(1);
+    if (!saved) return res.status(400).json({ error: "That delivery address was not found", code: "ADDRESS_REQUIRED" });
+    // What the courier sees: who to deliver to, their phone, and the full address.
+    const address = `${saved.recipientName}, ${saved.phone} - ${saved.formattedAddress}`;
+    const latitude = saved.latitude;
+    const longitude = saved.longitude;
+    const addressLink = saved.addressLink;
     const useWallet = req.body?.useWallet === true;
     const userId = req.userId!;
 
@@ -140,6 +146,7 @@ router.post("/create-order", async (req: AuthRequest, res) => {
     let estimateWallet = 0;
     if (useWallet) {
       const [w] = await db.select().from(walletsTable).where(eq(walletsTable.userId, userId)).limit(1);
+      if (w && !w.isReleased) throw walletLocked();
       estimateWallet = walletShareFor(w ? toPaise(w.balance) : 0, totalPaise);
     }
     const estimateOnline = totalPaise - estimateWallet;
@@ -149,7 +156,7 @@ router.post("/create-order", async (req: AuthRequest, res) => {
         ? await razorpay!.orders.create({
             amount: estimateOnline,
             currency: "INR",
-            notes: { purpose: "shop_order", userId: String(userId), address },
+            notes: { purpose: "shop_order", userId: String(userId), addressId: String(saved.id), address: address.slice(0, MAX_NOTE_LENGTH) },
           })
         : null;
 
@@ -158,6 +165,7 @@ router.post("/create-order", async (req: AuthRequest, res) => {
       let walletPaise = 0;
       if (useWallet) {
         const [w] = await tx.select().from(walletsTable).where(eq(walletsTable.userId, userId)).for("update");
+        if (w && !w.isReleased) throw walletLocked();
         walletPaise = walletShareFor(w ? toPaise(w.balance) : 0, totalPaise);
       }
       if (walletPaise !== estimateWallet) {
@@ -175,8 +183,9 @@ router.post("/create-order", async (req: AuthRequest, res) => {
             total: paiseToDecimal(totalPaise),
             walletAmount: paiseToDecimal(walletPaise),
             address,
-            addressLatitude: latitude ?? null,
-            addressLongitude: longitude ?? null,
+            addressLatitude: latitude,
+            addressLongitude: longitude,
+            addressLink,
             paymentMethod: "wallet",
             status: "confirmed",
             paymentStatus: "paid",
@@ -196,8 +205,9 @@ router.post("/create-order", async (req: AuthRequest, res) => {
           total: paiseToDecimal(totalPaise),
           walletAmount: paiseToDecimal(walletPaise),
           address,
-          addressLatitude: latitude ?? null,
-          addressLongitude: longitude ?? null,
+          addressLatitude: latitude,
+          addressLongitude: longitude,
+          addressLink,
           paymentMethod: walletPaise > 0 ? "wallet+razorpay" : "razorpay",
           status: "pending",
           paymentStatus: "pending",
@@ -248,7 +258,7 @@ router.post("/create-order", async (req: AuthRequest, res) => {
 });
 
 // Verify the online payment and confirm the order.
-router.post("/verify-order", async (req: AuthRequest, res) => {
+router.post("/verify-order", async (req, res) => {
   try {
     const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body ?? {};
     const dbOrderId = Number(req.body?.dbOrderId);
@@ -303,7 +313,7 @@ router.post("/verify-order", async (req: AuthRequest, res) => {
 });
 
 // The customer closed or failed the online payment: give back the frozen stock and any wallet money.
-router.post("/cancel-order", async (req: AuthRequest, res) => {
+router.post("/cancel-order", async (req, res) => {
   try {
     const dbOrderId = Number(req.body?.dbOrderId);
     if (!Number.isInteger(dbOrderId)) return res.status(400).json({ error: "dbOrderId is required" });
@@ -338,7 +348,7 @@ router.post("/cancel-order", async (req: AuthRequest, res) => {
 // ─── Chit payments ───────────────────────────────────────────────────────────
 // Create a Razorpay order for the amount currently pending on a chit plan
 // (this month's payment, plus any earlier months not yet paid). Only approved plans can be paid.
-router.post("/create-chit-payment", async (req: AuthRequest, res) => {
+router.post("/create-chit-payment", async (req, res) => {
   try {
     const chitPlanId = Number(req.body?.chitPlanId ?? req.body?.enrollmentId);
     if (!Number.isInteger(chitPlanId)) {
@@ -394,7 +404,7 @@ router.post("/create-chit-payment", async (req: AuthRequest, res) => {
 // Verify a chit payment. The amount credited is what Razorpay says it captured,
 // not what the app claims. If it is less than what is due, the customer is told
 // the payment is incomplete and the balance stays pending.
-router.post("/verify-chit-payment", async (req: AuthRequest, res) => {
+router.post("/verify-chit-payment", async (req, res) => {
   try {
     const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body ?? {};
     if (!validSignature(razorpayOrderId, razorpayPaymentId, razorpaySignature)) {
@@ -432,7 +442,7 @@ router.post("/verify-chit-payment", async (req: AuthRequest, res) => {
 });
 
 // ─── Wallet top-up ───────────────────────────────────────────────────────────
-router.post("/create-wallet-payment", async (req: AuthRequest, res) => {
+router.post("/create-wallet-payment", async (req, res) => {
   try {
     const amountPaise = parsePaise(req.body?.amount);
     if (amountPaise === null || amountPaise < MIN_ONLINE_PAISE) {
@@ -460,7 +470,7 @@ router.post("/create-wallet-payment", async (req: AuthRequest, res) => {
   }
 });
 
-router.post("/verify-wallet-payment", async (req: AuthRequest, res) => {
+router.post("/verify-wallet-payment", async (req, res) => {
   try {
     const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body ?? {};
     if (!validSignature(razorpayOrderId, razorpayPaymentId, razorpaySignature)) {

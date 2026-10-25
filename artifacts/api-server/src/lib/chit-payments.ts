@@ -6,7 +6,7 @@ import {
   walletsTable,
   usersTable,
 } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { enrollmentDue, firstOfNextMonth } from "./chit-rules";
 import { fromPaise, paiseToDecimal, toPaise } from "./money";
 import { PaymentCheckError, loadCapturedPayment } from "./razorpay";
@@ -151,6 +151,23 @@ export async function applyChitPayment(opts: {
           updatedAt: new Date(),
         })
         .where(eq(walletsTable.userId, opts.userId));
+      // The last payment is made: the wallet opens, unless another approved plan is still being paid.
+      const [stillPaying] = await tx
+        .select({ id: chitPlansTable.id })
+        .from(chitPlansTable)
+        .where(and(
+          eq(chitPlansTable.userId, opts.userId),
+          eq(chitPlansTable.isApproved, true),
+          eq(chitPlansTable.status, "active"),
+          ne(chitPlansTable.id, plan.id),
+        ))
+        .limit(1);
+      if (!stillPaying) {
+        await tx
+          .update(walletsTable)
+          .set({ isReleased: true, releasedAt: new Date() })
+          .where(eq(walletsTable.userId, opts.userId));
+      }
       await tx.insert(transactionsTable).values([
         {
           userId: opts.userId,

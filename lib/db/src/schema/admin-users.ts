@@ -7,9 +7,11 @@ export const adminUsersTable = pgTable("admin_users", {
   passwordHash: text("password_hash").notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   failedLoginAttempts: integer("failed_login_attempts").default(0).notNull(),
-  lockedUntil: timestamp("locked_until"),
-  lastLoginAt: timestamp("last_login_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  // Random id of the one allowed live session. A new login replaces it, which signs the old session out.
+  sessionId: text("session_id"),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export type AdminUser = typeof adminUsersTable.$inferSelect;

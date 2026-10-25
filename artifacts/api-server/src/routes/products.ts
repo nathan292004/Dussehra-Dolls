@@ -1,8 +1,11 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { productsTable } from "@workspace/db/schema";
-import { eq, ilike, or, and } from "drizzle-orm";
+import { and, desc, eq, ilike, or } from "drizzle-orm";
 import { toRupees } from "../lib/money";
+import { HttpError } from "../lib/http-error";
+import { likePattern, readPage, readSearch } from "../lib/pagination";
+import { parse, idParam } from "../lib/validate";
 
 const router = Router();
 
@@ -19,30 +22,32 @@ function forCustomer(p: typeof productsTable.$inferSelect) {
   };
 }
 
+// ?category=...&search=...&page=1&pageSize=20
 router.get("/", async (req, res) => {
-  try {
-    const { category, search } = req.query as { category?: string; search?: string };
-    const conditions = [eq(productsTable.isListed, true)];
-    if (category) conditions.push(eq(productsTable.category, category));
-    if (search) conditions.push(or(ilike(productsTable.name, `%${search}%`), ilike(productsTable.description ?? "", `%${search}%`))!);
-    const products = await db.select().from(productsTable).where(and(...conditions));
-    return res.json(products.map(forCustomer));
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+  const p = readPage(req, 20);
+  const search = readSearch(req, "search");
+  const category = readSearch(req, "category", 60);
+  const conditions = [eq(productsTable.isListed, true)];
+  if (category && category !== "All") conditions.push(eq(productsTable.category, category));
+  if (search) {
+    const like = likePattern(search);
+    conditions.push(or(ilike(productsTable.name, like), ilike(productsTable.description, like))!);
   }
+  const products = await db
+    .select()
+    .from(productsTable)
+    .where(and(...conditions))
+    .orderBy(desc(productsTable.isFeatured), desc(productsTable.createdAt), desc(productsTable.id))
+    .limit(p.pageSize)
+    .offset(p.offset);
+  res.json(products.map(forCustomer));
 });
 
 router.get("/:id", async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    const [product] = await db.select().from(productsTable).where(eq(productsTable.id, id)).limit(1);
-    if (!product) return res.status(404).json({ error: "Product not found" });
-    return res.json(forCustomer(product));
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
+  const id = parse(idParam, req.params.id);
+  const [product] = await db.select().from(productsTable).where(and(eq(productsTable.id, id), eq(productsTable.isListed, true))).limit(1);
+  if (!product) throw new HttpError(404, "Product not found");
+  res.json(forCustomer(product));
 });
 
 export default router;

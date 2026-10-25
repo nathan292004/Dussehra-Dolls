@@ -7,6 +7,12 @@ export interface PickedAddress {
   formattedAddress: string;
   latitude: number;
   longitude: number;
+  // Filled from Google's result when available, to save typing.
+  street?: string;
+  locality?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
 }
 
 interface Props {
@@ -79,13 +85,14 @@ function buildMapHtml(key: string, initial?: Partial<PickedAddress>) {
 <script>
 let map, marker, geocoder, selected=null;
 function send(value){const data=JSON.stringify(value);if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(data)}else if(window.parent!==window){window.parent.postMessage(data,'*')}}
+function parts(r){var g=function(t){var c=(r.address_components||[]).find(function(a){return a.types.indexOf(t)>-1});return c?c.long_name:''};return{street:g('route'),locality:g('sublocality_level_1')||g('sublocality')||g('neighborhood'),city:g('locality')||g('administrative_area_level_2'),state:g('administrative_area_level_1'),pincode:g('postal_code')}}
 function showHint(text,error){const el=document.getElementById('hint');el.textContent=text;el.className='hint'+(error?' error':'')}
 function initMap(){map=new google.maps.Map(document.getElementById('map'),{center:${JSON.stringify(center)},zoom:${marker === "null" ? 5 : 16},mapTypeControl:false,streetViewControl:false,fullscreenControl:false,clickableIcons:false});geocoder=new google.maps.Geocoder();${marker !== "null" ? `marker=new google.maps.Marker({position:${marker},map});selected=marker.getPosition();reverseGeocode(selected);` : ""}
 map.addListener('click',event=>{if(!event.latLng)return;selected=event.latLng;if(!marker)marker=new google.maps.Marker({map});marker.setPosition(selected);reverseGeocode(selected)});
-document.getElementById('searchButton').onclick=()=>{const address=document.getElementById('search').value.trim();if(!address)return;geocoder.geocode({address},(results,status)=>{if(status==='OK'&&results[0]){map.setCenter(results[0].geometry.location);map.setZoom(16);selected=results[0].geometry.location;if(!marker)marker=new google.maps.Marker({map});marker.setPosition(selected);showHint(results[0].formatted_address,false);send({formattedAddress:results[0].formatted_address,latitude:selected.lat(),longitude:selected.lng()})}else showHint('Could not find that address. Try a nearby landmark.',true)})};
+document.getElementById('searchButton').onclick=()=>{const address=document.getElementById('search').value.trim();if(!address)return;geocoder.geocode({address},(results,status)=>{if(status==='OK'&&results[0]){map.setCenter(results[0].geometry.location);map.setZoom(16);selected=results[0].geometry.location;if(!marker)marker=new google.maps.Marker({map});marker.setPosition(selected);showHint(results[0].formatted_address,false);send(Object.assign({formattedAddress:results[0].formatted_address,latitude:selected.lat(),longitude:selected.lng()},parts(results[0])))}else showHint('Could not find that address. Try a nearby landmark.',true)})};
 document.getElementById('search').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();document.getElementById('searchButton').click()}});
 }
-function reverseGeocode(position){geocoder.geocode({location:position},(results,status)=>{if(status==='OK'&&results[0]){showHint(results[0].formatted_address,false);send({formattedAddress:results[0].formatted_address,latitude:position.lat(),longitude:position.lng()})}else showHint('Pin selected. Enter the full delivery address in the app.',false)})}
+function reverseGeocode(position){geocoder.geocode({location:position},(results,status)=>{if(status==='OK'&&results[0]){showHint(results[0].formatted_address,false);send(Object.assign({formattedAddress:results[0].formatted_address,latitude:position.lat(),longitude:position.lng()},parts(results[0])))}else showHint('Pin selected. Enter the full delivery address in the app.',false)})}
 window.initMap=initMap;
 </script><script async src="https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&callback=initMap" onerror="showHint('Google Maps could not load. Check the API key and enabled APIs.',true)"></script></body></html>`;
 }

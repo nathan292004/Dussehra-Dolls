@@ -4,9 +4,17 @@ import { adminUsersTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyAdminToken } from "../lib/admin-auth";
 
-export interface AdminRequest extends Request {
-  adminId?: number;
+declare global {
+  namespace Express {
+    interface Request {
+      /** Set by requireAdmin: the signed-in admin. */
+      adminId?: number;
+      adminUsername?: string;
+    }
+  }
 }
+
+export type AdminRequest = Request;
 
 /** Protects every admin route. Requires a valid, unexpired token for an active admin account. */
 export async function requireAdmin(req: AdminRequest, res: Response, next: NextFunction) {
@@ -20,14 +28,27 @@ export async function requireAdmin(req: AdminRequest, res: Response, next: NextF
       return res.status(401).json({ error: "Session expired. Please log in again." });
     }
     const [admin] = await db
-      .select({ id: adminUsersTable.id, isActive: adminUsersTable.isActive })
+      .select({
+        id: adminUsersTable.id,
+        username: adminUsersTable.username,
+        isActive: adminUsersTable.isActive,
+        sessionId: adminUsersTable.sessionId,
+      })
       .from(adminUsersTable)
       .where(eq(adminUsersTable.id, payload.sub))
       .limit(1);
     if (!admin || !admin.isActive) {
       return res.status(401).json({ error: "Admin account is not active" });
     }
+    // Only one admin session is allowed at a time: signing in again elsewhere replaces this one.
+    if (!admin.sessionId || admin.sessionId !== payload.sid) {
+      return res.status(401).json({
+        error: "You were signed out because the admin account was signed in somewhere else.",
+        code: "SESSION_REPLACED",
+      });
+    }
     req.adminId = admin.id;
+    req.adminUsername = admin.username;
     return next();
   } catch (err) {
     console.error("[AdminAuth] error", err);

@@ -10,3 +10,4 @@ export * from "./admin-users";
 export * from "./notifications";
 export * from "./integrations";
 export * from "./addresses";
+export * from "./audit";

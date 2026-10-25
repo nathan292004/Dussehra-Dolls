@@ -7,7 +7,7 @@ import { fromPaise, sumPaise, toRupees } from "../lib/money";
 import { loadCartLines } from "../lib/cart-lines";
 
 const router = Router();
-router.use(authMiddleware as any);
+router.use(authMiddleware);
 
 const MAX_QUANTITY = 99;
 
@@ -36,7 +36,7 @@ async function buildCartResponse(userId: string) {
 const isWholeNumber = (v: unknown, min: number, max: number): v is number =>
   Number.isInteger(v) && (v as number) >= min && (v as number) <= max;
 
-router.get("/", async (req: AuthRequest, res) => {
+router.get("/", async (req, res) => {
   try {
     return res.json(await buildCartResponse(req.userId!));
   } catch (err) {
@@ -45,7 +45,7 @@ router.get("/", async (req: AuthRequest, res) => {
   }
 });
 
-router.post("/", async (req: AuthRequest, res) => {
+router.post("/", async (req, res) => {
   try {
     const { productId, quantity } = req.body ?? {};
     if (!isWholeNumber(productId, 1, 2_147_483_647) || !isWholeNumber(quantity, 1, MAX_QUANTITY)) {
@@ -68,7 +68,7 @@ router.post("/", async (req: AuthRequest, res) => {
   }
 });
 
-router.put("/:productId", async (req: AuthRequest, res) => {
+router.put("/:productId", async (req, res) => {
   try {
     const productId = parseInt(String(req.params.productId), 10);
     const { quantity } = req.body ?? {};
@@ -90,7 +90,7 @@ router.put("/:productId", async (req: AuthRequest, res) => {
   }
 });
 
-router.delete("/:productId", async (req: AuthRequest, res) => {
+router.delete("/:productId", async (req, res) => {
   try {
     const productId = parseInt(String(req.params.productId), 10);
     if (!Number.isInteger(productId)) return res.status(400).json({ error: "Invalid product" });

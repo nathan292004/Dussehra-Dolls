@@ -16,6 +16,8 @@ import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { useAuth, ApiError } from "@/context/auth";
+import PhoneInput from "@/components/phone-input";
+import { DEFAULT_COUNTRY, phoneProblem, toInternational, type Country } from "@/constants/countries";
 
 type Mode = "login" | "register" | "forgot";
 type ForgotStep = "phone" | "reset";
@@ -29,7 +31,10 @@ export default function AuthScreen() {
 
   const [fname, setFname] = useState("");
   const [lname, setLname] = useState("");
+  const [country, setCountry] = useState<Country>(DEFAULT_COUNTRY); // +91 unless the customer picks another
   const [phone, setPhone] = useState("");
+  // What is sent to the server: country code + number, e.g. +919876543210
+  const fullPhone = toInternational(country, phone);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
@@ -57,14 +62,15 @@ export default function AuthScreen() {
 
   const handleSendOtp = async () => {
     setError("");
-    if (!phone) { setError("Please enter your phone number"); return; }
+    const phoneErr = phoneProblem(country, phone);
+    if (phoneErr) { setError(phoneErr); return; }
     if (!fname.trim()) { setError("Please enter your first name"); return; }
     if (!password || password.length < 6) { setError("Password must be at least 6 characters"); return; }
 
     setAlreadyRegistered(false);
     setIsLoading(true);
     try {
-      setDevelopmentOtp(await sendOtp(phone, "register"));
+      setDevelopmentOtp(await sendOtp(fullPhone, "register"));
       setOtpSent(true);
       setRegisterStep("otp");
       startCountdown();
@@ -83,7 +89,7 @@ export default function AuthScreen() {
     setError("");
     setIsLoading(true);
     try {
-      setDevelopmentOtp(await sendOtp(phone, mode === "forgot" ? "reset" : "register"));
+      setDevelopmentOtp(await sendOtp(fullPhone, mode === "forgot" ? "reset" : "register"));
       setOtp(["", "", "", "", "", ""]);
       startCountdown();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -125,7 +131,7 @@ export default function AuthScreen() {
 
     setIsLoading(true);
     try {
-      await register(fname.trim(), lname.trim(), phone, password, otpCode);
+      await register(fname.trim(), lname.trim(), fullPhone, password, otpCode);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (err: any) {
@@ -138,10 +144,12 @@ export default function AuthScreen() {
 
   const handleLogin = async () => {
     setError("");
-    if (!phone || !password) { setError("Please enter phone and password"); return; }
+    const phoneErr = phoneProblem(country, phone);
+    if (phoneErr) { setError(phoneErr); return; }
+    if (!password) { setError("Please enter your password"); return; }
     setIsLoading(true);
     try {
-      await login(phone, password);
+      await login(fullPhone, password);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (err: any) {
@@ -154,10 +162,11 @@ export default function AuthScreen() {
 
   const handleForgotSendOtp = async () => {
     setError("");
-    if (!phone) { setError("Please enter your registered phone number"); return; }
+    const phoneErr = phoneProblem(country, phone);
+    if (phoneErr) { setError(phoneErr); return; }
     setIsLoading(true);
     try {
-      setDevelopmentOtp(await sendOtp(phone, "reset"));
+      setDevelopmentOtp(await sendOtp(fullPhone, "reset"));
       setOtp(["", "", "", "", "", ""]);
       setForgotStep("reset");
       startCountdown();
@@ -177,7 +186,7 @@ export default function AuthScreen() {
     if (!password || password.length < 6) { setError("New password must be at least 6 characters"); return; }
     setIsLoading(true);
     try {
-      await resetPassword(phone, otpCode, password);
+      await resetPassword(fullPhone, otpCode, password);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (err: any) {
@@ -247,14 +256,7 @@ export default function AuthScreen() {
         <Text style={styles.label}>Phone Number</Text>
         <View style={styles.inputContainer}>
           <Ionicons name="call-outline" size={18} color={Colors.light.textMuted} />
-          <TextInput
-            style={styles.input}
-            value={phone}
-            onChangeText={setPhone}
-            placeholder="+91 98765 43210"
-            placeholderTextColor={Colors.light.textMuted}
-            keyboardType="phone-pad"
-          />
+          <PhoneInput country={country} onCountryChange={setCountry} value={phone} onChangeText={setPhone} />
         </View>
       </View>
       {error ? <ErrorBox message={error} /> : null}
@@ -276,7 +278,7 @@ export default function AuthScreen() {
         <Text style={styles.otpSubtitle}>
           {developmentOtp ? "Use this local test code:" : "Enter the code we sent to"}{"\n"}
           {developmentOtp ? <Text style={{ color: Colors.light.tint, fontWeight: "700" }}>{developmentOtp}{"\n"}</Text> : null}
-          <Text style={{ color: Colors.light.tint }}>{phone}</Text>
+          <Text style={{ color: Colors.light.tint }}>{fullPhone}</Text>
         </Text>
       </View>
       {otpBoxes}
@@ -349,15 +351,7 @@ export default function AuthScreen() {
               <Text style={styles.label}>Phone Number</Text>
               <View style={styles.inputContainer}>
                 <Ionicons name="call-outline" size={18} color={Colors.light.textMuted} />
-                <TextInput
-                  style={styles.input}
-                  value={phone}
-                  onChangeText={setPhone}
-                  placeholder="+91 98765 43210"
-                  placeholderTextColor={Colors.light.textMuted}
-                  keyboardType="phone-pad"
-                  autoCapitalize="none"
-                />
+                <PhoneInput country={country} onCountryChange={setCountry} value={phone} onChangeText={setPhone} />
               </View>
             </View>
 
@@ -431,14 +425,7 @@ export default function AuthScreen() {
               <Text style={styles.label}>Phone Number</Text>
               <View style={styles.inputContainer}>
                 <Ionicons name="call-outline" size={18} color={Colors.light.textMuted} />
-                <TextInput
-                  style={styles.input}
-                  value={phone}
-                  onChangeText={setPhone}
-                  placeholder="+91 98765 43210"
-                  placeholderTextColor={Colors.light.textMuted}
-                  keyboardType="phone-pad"
-                />
+                <PhoneInput country={country} onCountryChange={setCountry} value={phone} onChangeText={setPhone} />
               </View>
             </View>
 
@@ -496,7 +483,7 @@ export default function AuthScreen() {
               <Text style={styles.otpSubtitle}>
                 {developmentOtp ? "Use this local test code:" : "We sent a 6-digit code to"}{"\n"}
                 {developmentOtp ? <Text style={{ color: Colors.light.tint, fontWeight: "700" }}>{developmentOtp}{"\n"}</Text> : null}
-                <Text style={{ color: Colors.light.tint }}>{phone}</Text>
+                <Text style={{ color: Colors.light.tint }}>{fullPhone}</Text>
               </Text>
             </View>
 

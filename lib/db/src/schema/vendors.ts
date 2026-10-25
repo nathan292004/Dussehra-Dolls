@@ -8,7 +8,7 @@ export const vendorsTable = pgTable("vendors", {
   contact: text("contact"),
   email: text("email"),
   phone: text("phone"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const insertVendorSchema = createInsertSchema(vendorsTable).omit({ id: true, createdAt: true });

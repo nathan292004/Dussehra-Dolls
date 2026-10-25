@@ -16,6 +16,7 @@ import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { useAuth, ApiError } from "@/context/auth";
+import { useRefreshControl } from "@/hooks/use-refresh-control";
 
 interface MenuItem {
   icon: keyof typeof Ionicons.glyphMap;
@@ -45,7 +46,8 @@ function MenuRow({ item }: { item: MenuItem }) {
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, logout, deleteAccount } = useAuth();
+  const { user, logout, deleteAccount, refreshUser } = useAuth();
+  const refreshControl = useRefreshControl(refreshUser);
   const [showDelete, setShowDelete] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteError, setDeleteError] = useState("");
@@ -138,7 +140,7 @@ export default function ProfileScreen() {
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
       <Text style={styles.title}>Profile</Text>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 90 }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 90 }]} refreshControl={refreshControl}>
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{initials}</Text>

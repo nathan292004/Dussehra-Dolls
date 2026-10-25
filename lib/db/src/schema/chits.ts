@@ -24,9 +24,9 @@ export const chitPlansTable = pgTable("chit_plans", {
   isRejected: boolean("is_rejected").default(false).notNull(),
   rejectionReason: text("rejection_reason"),
   reviewedBy: integer("reviewed_by").references(() => adminUsersTable.id),
-  reviewedAt: timestamp("reviewed_at"),
-  completedAt: timestamp("completed_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   check("chit_plans_not_approved_and_rejected", sql`NOT (${t.isApproved} AND ${t.isRejected})`),
   // A customer can have only one plan per plan year that is under review or approved
@@ -50,9 +50,9 @@ export const chitReminderLogTable = pgTable("chit_reminder_log", {
   attempts: integer("attempts").notNull().default(0),
   lastError: text("last_error"),
   amountDue: numeric("amount_due", { precision: 10, scale: 2 }),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
 }, (t) => [uniqueIndex("chit_reminder_unique").on(t.chitPlanId, t.kind, t.periodKey)]);
 
 export type ChitPlan = typeof chitPlansTable.$inferSelect;

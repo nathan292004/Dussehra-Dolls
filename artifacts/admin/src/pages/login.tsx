@@ -2,12 +2,13 @@ import * as React from "react";
 import { Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { saveAdminSession, type AdminInfo } from "@/lib/admin-session";
+import { saveAdminSession, takeLogoutNotice, type AdminInfo } from "@/lib/admin-session";
 
 export function Login({ onLoggedIn }: { onLoggedIn: (admin: AdminInfo) => void }) {
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [error, setError] = React.useState("");
+  // If the admin was signed out automatically (for example by a login elsewhere), say why.
+  const [error, setError] = React.useState(() => takeLogoutNotice() ?? "");
   const [loading, setLoading] = React.useState(false);
 
   async function handleSubmit(e: React.FormEvent) {

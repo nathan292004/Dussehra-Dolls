@@ -34,7 +34,7 @@ router.get("/cycle", (_req, res) => {
 });
 
 // The customer's own plans, newest first: under review, rejected, active and completed.
-router.get("/my", authMiddleware as any, async (req: AuthRequest, res) => {
+router.get("/my", authMiddleware, async (req, res) => {
   try {
     const plans = await db
       .select()
@@ -51,7 +51,7 @@ router.get("/my", authMiddleware as any, async (req: AuthRequest, res) => {
 // Submit a plan for review. It cannot be paid for until an admin approves it.
 // One plan per customer per plan year (under review or approved): the database enforces this,
 // so if two requests arrive together one is created and the other is told to retry.
-router.post("/enroll-custom", authMiddleware as any, async (req: AuthRequest, res) => {
+router.post("/enroll-custom", authMiddleware, async (req, res) => {
   try {
     const { chits } = req.body ?? {};
     if (!isValidChitCount(chits)) {

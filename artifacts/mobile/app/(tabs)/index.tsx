@@ -34,6 +34,7 @@ interface Product {
   tags?: string[];
 }
 
+const PAGE_SIZE = 20;
 const CATEGORIES = ["All", "Traditional", "Modern", "Miniature", "Collector", "Children"];
 
 export default function ShopScreen() {
@@ -47,22 +48,44 @@ export default function ShopScreen() {
   const [search, setSearch] = useState("");
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
-  const fetchProducts = useCallback(async () => {
+  const [loadingMore, setLoadingMore] = useState(false);
+  const pageRef = useRef(1);
+  const hasMoreRef = useRef(true);
+  const busyRef = useRef(false);
+
+  // Products come 20 at a time; scrolling to the bottom loads the next 20.
+  const fetchProducts = useCallback(async (append = false) => {
+    if (busyRef.current) return;
+    if (append && !hasMoreRef.current) return;
+    busyRef.current = true;
+    const page = append ? pageRef.current + 1 : 1;
+    if (append) setLoadingMore(true);
     try {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
       if (selectedCategory !== "All") params.set("category", selectedCategory);
       if (search) params.set("search", search);
       const res = await fetch(`${getApiBase()}/products?${params}`);
-      if (res.ok) setProducts(await res.json());
+      if (res.ok) {
+        const rows: Product[] = await res.json();
+        pageRef.current = page;
+        hasMoreRef.current = rows.length === PAGE_SIZE;
+        setProducts((prev) => {
+          if (!append) return rows;
+          const seen = new Set(prev.map((p) => p.id));
+          return [...prev, ...rows.filter((p) => !seen.has(p.id))];
+        });
+      }
     } catch { /* ignore */ } finally {
+      busyRef.current = false;
       setIsLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
   }, [selectedCategory, search]);
 
   useFocusEffect(useCallback(() => { void fetchProducts(); }, [fetchProducts]));
 
-  const onRefresh = () => { setRefreshing(true); fetchProducts(); };
+  const onRefresh = () => { setRefreshing(true); void fetchProducts(); };
 
   const handleAddToCart = async (product: Product) => {
     if (!user) { router.push("/auth"); return; }
@@ -174,6 +197,9 @@ export default function ShopScreen() {
         contentContainerStyle={[styles.list, { paddingBottom: Platform.OS === "web" ? 118 : 100 + insets.bottom }]}
         columnWrapperStyle={styles.row}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.light.tint} />}
+        onEndReached={() => void fetchProducts(true)}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 16 }} color={Colors.light.tint} /> : null}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Ionicons name="cube-outline" size={56} color={Colors.light.borderStrong} />

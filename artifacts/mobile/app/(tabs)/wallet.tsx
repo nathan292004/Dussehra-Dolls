@@ -16,6 +16,8 @@ import { router, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { useAuth, getApiBase } from "@/context/auth";
+import { useRefreshControl } from "@/hooks/use-refresh-control";
+import { formatDateIST } from "@/lib/time";
 
 interface Transaction {
   id: number;
@@ -28,8 +30,13 @@ interface Transaction {
 interface WalletData {
   balance: number;
   lockedBalance?: number;
+  /** False while a chit plan is still being paid: the balance cannot be spent yet. */
+  isReleased?: boolean;
   transactions: Transaction[];
+  hasMore?: boolean;
 }
+
+const TX_PAGE_SIZE = 20;
 
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000];
 
@@ -44,17 +51,35 @@ export default function WalletScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
+  const [txPage, setTxPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const fetchWallet = useCallback(async () => {
     if (!token) { setIsLoading(false); return; }
     try {
-      const res = await fetch(`${getApiBase()}/wallet`, {
+      const res = await fetch(`${getApiBase()}/wallet?page=1&pageSize=${TX_PAGE_SIZE}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) setWallet(await res.json());
+      if (res.ok) { setWallet(await res.json()); setTxPage(1); }
     } catch { /* ignore */ } finally { setIsLoading(false); }
   }, [token]);
 
+  const loadMoreTransactions = async () => {
+    if (!token || loadingMore || !wallet?.hasMore) return;
+    setLoadingMore(true);
+    try {
+      const next = txPage + 1;
+      const res = await fetch(`${getApiBase()}/wallet?page=${next}&pageSize=${TX_PAGE_SIZE}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const more: WalletData = await res.json();
+        setWallet((w) => w ? { ...w, transactions: [...w.transactions, ...more.transactions.filter((t) => !w.transactions.some((x) => x.id === t.id))], hasMore: more.hasMore } : more);
+        setTxPage(next);
+      }
+    } catch { /* ignore */ } finally { setLoadingMore(false); }
+  };
+
   useFocusEffect(useCallback(() => { void fetchWallet(); }, [fetchWallet]));
+  const refreshControl = useRefreshControl(fetchWallet);
 
   const addFunds = async () => {
     const amt = parseFloat(amount);
@@ -119,7 +144,7 @@ export default function WalletScreen() {
         <Text style={styles.title}>Wallet</Text>
       </View>
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 90 }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 90 }]} refreshControl={refreshControl}>
         <View style={styles.balanceCard}>
           <View style={styles.balanceDecoCircle1} />
           <View style={styles.balanceDecoCircle2} />
@@ -133,6 +158,18 @@ export default function WalletScreen() {
             <Text style={styles.addFundsBtnText}>Add Money</Text>
           </Pressable>
         </View>
+
+        {wallet && wallet.isReleased === false && (
+          <View style={styles.lockedCard}>
+            <Ionicons name="lock-closed" size={18} color="#b45309" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.lockedTitle}>Your wallet opens after your last chit payment</Text>
+              <Text style={styles.lockedText}>
+                You can spend your wallet balance once all your chit payments up to August are complete. Until then you can pay for orders online.
+              </Text>
+            </View>
+          </View>
+        )}
 
         {(wallet?.lockedBalance ?? 0) > 0 && (
           <View style={styles.lockedCard}>
@@ -172,7 +209,7 @@ export default function WalletScreen() {
                 <View style={styles.txInfo}>
                   <Text style={styles.txDesc}>{tx.description}</Text>
                   <Text style={styles.txDate}>
-                    {new Date(tx.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                    {formatDateIST(tx.createdAt)}
                   </Text>
                 </View>
                 <Text style={[styles.txAmount, { color: tx.type === "credit" ? Colors.light.success : Colors.light.error }]}>
@@ -180,6 +217,11 @@ export default function WalletScreen() {
                 </Text>
               </View>
             ))}
+            {wallet.hasMore ? (
+              <Pressable style={styles.loadMore} onPress={() => void loadMoreTransactions()} disabled={loadingMore}>
+                {loadingMore ? <ActivityIndicator color={Colors.light.tint} /> : <Text style={styles.loadMoreText}>Show older transactions</Text>}
+              </Pressable>
+            ) : null}
           </View>
         )}
       </ScrollView>
@@ -229,6 +271,8 @@ export default function WalletScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadMore: { alignItems: "center", paddingVertical: 14 },
+  loadMoreText: { color: Colors.light.tint, fontSize: 14, fontWeight: "600" },
   container: { flex: 1, backgroundColor: Colors.light.background },
   loader: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: Colors.light.background },
   header: { paddingHorizontal: 16, paddingBottom: 12 },

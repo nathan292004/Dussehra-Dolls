@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
+import { formatIST } from "@/lib/time";
 import { RefreshCw, BellRing, MessageSquareWarning, AlarmClock, Layers, ClipboardCheck, Wallet, PackageSearch, Users } from "lucide-react";
 
 const rupees = (n: number) =>
@@ -169,7 +170,7 @@ export function Tracking() {
           <h1 className="text-3xl text-ink">Reminders &amp; Tracking</h1>
           <p className="text-warm-secondary mt-1 text-sm">
             Plan year {d.cycle.label} · now {d.cycle.open ? `${d.cycle.monthName} (month ${d.cycle.monthNumber} of 11)` : "between plan years"}.
-            Updated {format(new Date(d.generatedAt), "h:mm a")}.
+            Updated {formatIST(d.generatedAt, "h:mm a")}.
           </p>
         </div>
         <button onClick={() => refetch()} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-warm-border bg-white text-sm text-warm-secondary hover:bg-parchment">

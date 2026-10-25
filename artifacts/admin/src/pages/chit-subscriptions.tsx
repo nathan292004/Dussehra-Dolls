@@ -1,6 +1,8 @@
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
-import { format } from "date-fns";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useDebounced } from "@/hooks/use-paged";
+import { Pager } from "@/components/pager";
+import { formatIST } from "@/lib/time";
 import { Search } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
@@ -29,7 +31,13 @@ type Row = {
 type Data = {
   stats: { totalSubscriptions: number; paid: number; pending: number; overdue: number; completed: number };
   plans: Row[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 };
+
+const PAGE_SIZE = 25;
 
 const BADGE: Record<PaymentStatus, [string, string]> = {
   paid: ["bg-forest-light text-forest", "Paid up"],
@@ -41,22 +49,24 @@ const BADGE: Record<PaymentStatus, [string, string]> = {
 export function ChitSubscriptions() {
   const [search, setSearch] = React.useState("");
   const [filter, setFilter] = React.useState<PaymentStatus | "all">("all");
-  const { data, isLoading } = useQuery<Data>({
-    queryKey: ["/api/admin/chit-plans/subscriptions"],
+  const [page, setPage] = React.useState(1);
+  const q = useDebounced(search.trim());
+  React.useEffect(() => setPage(1), [q, filter]);
+  const { data, isLoading, isFetching } = useQuery<Data>({
+    queryKey: ["/api/admin/chit-plans/subscriptions", { page, q, filter }],
     queryFn: async () => {
-      const res = await fetch("/api/admin/chit-plans/subscriptions");
-      return res.ok ? res.json() : { stats: { totalSubscriptions: 0, paid: 0, pending: 0, overdue: 0, completed: 0 }, plans: [] };
+      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      if (q) params.set("q", q);
+      if (filter !== "all") params.set("status", filter);
+      const res = await fetch(`/api/admin/chit-plans/subscriptions?${params}`);
+      if (!res.ok) throw new Error("Could not load the plans");
+      return res.json();
     },
+    placeholderData: keepPreviousData,
     refetchInterval: 15000,
   });
   const stats = data?.stats ?? { totalSubscriptions: 0, paid: 0, pending: 0, overdue: 0, completed: 0 };
-  const rows = (data?.plans ?? []).filter(
-    (r) =>
-      (filter === "all" || r.paymentStatus === filter) &&
-      (r.customer.name.toLowerCase().includes(search.toLowerCase()) ||
-        r.customer.phone.includes(search) ||
-        r.customer.userId.toLowerCase().includes(search.toLowerCase())),
-  );
+  const rows = data?.plans ?? [];
 
   const cards: { key: PaymentStatus | "all"; label: string; value: number; color: string }[] = [
     { key: "all", label: "Approved plans", value: stats.totalSubscriptions, color: "text-ink" },
@@ -157,7 +167,7 @@ export function ChitSubscriptions() {
                         {r.remindersFailed > 0 && <span className="text-destructive"> · {r.remindersFailed} failed</span>}
                       </td>
                       <td className="px-4 py-3 text-xs text-warm-muted whitespace-nowrap">
-                        {r.lastReminderAt ? format(new Date(r.lastReminderAt), "d MMM, h:mm a") : "—"}
+                        {r.lastReminderAt ? formatIST(r.lastReminderAt, "d MMM, h:mm a") : "—"}
                       </td>
                     </tr>
                   );
@@ -166,6 +176,7 @@ export function ChitSubscriptions() {
             </tbody>
           </table>
         </div>
+        <Pager page={page} pageSize={PAGE_SIZE} total={data?.total ?? 0} totalPages={data?.totalPages ?? 1} onPage={setPage} busy={isFetching} />
       </div>
     </div>
   );

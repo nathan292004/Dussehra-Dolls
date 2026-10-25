@@ -1,6 +1,4 @@
 import { Router } from "express";
-import bcrypt from "bcryptjs";
-import crypto from "crypto";
 import { db } from "@workspace/db";
 import {
   usersTable,
@@ -10,8 +8,9 @@ import {
   ordersTable,
   chitPlansTable,
   otpVerificationsTable,
+  customerAddressesTable,
 } from "@workspace/db/schema";
-import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { sendSms, SmsDeliveryError } from "../lib/twilio";
 import { recordNotification } from "../lib/notify";
 import { signToken, CUSTOMER_TOKEN_TTL_SECONDS } from "../lib/jwt";
@@ -25,106 +24,19 @@ import {
 } from "../lib/lockout";
 import { toPaise } from "../lib/money";
 import { withNewUserId } from "../lib/user-id";
+import { normalizePhone } from "../lib/phone";
+import {
+  OTP_MAX_SENDS_PER_HOUR,
+  OTP_RESEND_SECONDS,
+  OTP_VALID_MINUTES,
+  checkOtp,
+  generateOtp,
+  hashOtp,
+  type OtpPurpose,
+} from "../lib/otp";
+import { DUMMY_HASH, hashPassword, passwordProblem, verifyPassword } from "../lib/password";
 
 const router = Router();
-
-// ─── Passwords (bcrypt) ──────────────────────────────────────────────────────
-const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS) || 12;
-// bcrypt only uses the first 72 bytes of a password, so longer ones are refused.
-const MAX_PASSWORD_BYTES = 72;
-const MIN_PASSWORD_LENGTH = 6;
-// Compared against when the phone number is unknown, so timing doesn't reveal which numbers exist.
-const DUMMY_HASH = bcrypt.hashSync("not-a-real-password", BCRYPT_ROUNDS);
-
-const hashPassword = (password: string) => bcrypt.hash(password, BCRYPT_ROUNDS);
-
-function passwordProblem(password: unknown): string | null {
-  if (typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH) {
-    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
-  }
-  if (Buffer.byteLength(password) > MAX_PASSWORD_BYTES) {
-    return `Password must be at most ${MAX_PASSWORD_BYTES} characters`;
-  }
-  return null;
-}
-
-// ─── OTP rules ───────────────────────────────────────────────────────────────
-const OTP_VALID_MINUTES = 10;
-const OTP_MAX_WRONG_ATTEMPTS = 5;
-const OTP_RESEND_SECONDS = 60;
-const OTP_MAX_SENDS_PER_HOUR = 5;
-
-type OtpPurpose = "register" | "reset";
-
-function generateOtp(): string {
-  return crypto.randomInt(100000, 1000000).toString();
-}
-
-/**
- * One canonical form per number, e.g. "+919876543210". A plain 10-digit number (even one that
- * happens to start with 91) is an Indian mobile; "+" means the country code is already there.
- */
-function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (phone.trim().startsWith("+")) return "+" + digits;
-  if (digits.length === 10) return "+91" + digits;
-  if (digits.length === 11 && digits.startsWith("0")) return "+91" + digits.slice(1);
-  return "+" + digits;
-}
-
-/** Returns the normalized phone, or null if it doesn't look like a real number. */
-function validPhone(phone: unknown): string | null {
-  if (typeof phone !== "string") return null;
-  const sanitized = phone.replace(/[^\d+\-\s()]/g, "").trim();
-  if (sanitized.length < 10 || sanitized.length > 15) return null;
-  const normalized = normalizePhone(phone);
-  return /^\+\d{10,15}$/.test(normalized) ? normalized : null;
-}
-
-function sameOtp(a: string, b: string): boolean {
-  const x = Buffer.from(a);
-  const y = Buffer.from(b);
-  return x.length === y.length && crypto.timingSafeEqual(x, y);
-}
-
-type OtpResult = { ok: true; id: number } | { ok: false; status: number; error: string };
-
-/**
- * Checks a code the customer typed. A code works once, for one purpose, for 10 minutes, and
- * dies after 5 wrong guesses. (The caller marks it used in the same transaction as its action.)
- */
-async function checkOtp(phone: string, purpose: OtpPurpose, code: string): Promise<OtpResult> {
-  const [row] = await db
-    .select()
-    .from(otpVerificationsTable)
-    .where(
-      and(
-        eq(otpVerificationsTable.phone, phone),
-        eq(otpVerificationsTable.purpose, purpose),
-        eq(otpVerificationsTable.verified, false),
-        eq(otpVerificationsTable.isDeleted, false),
-        gt(otpVerificationsTable.expiresAt, new Date()),
-      ),
-    )
-    .orderBy(desc(otpVerificationsTable.createdAt), desc(otpVerificationsTable.id))
-    .limit(1);
-
-  if (!row) return { ok: false, status: 400, error: "Invalid or expired OTP. Please request a new one." };
-  if (row.attempts >= OTP_MAX_WRONG_ATTEMPTS) {
-    return { ok: false, status: 429, error: "Too many wrong attempts. Please request a new OTP." };
-  }
-  if (sameOtp(row.otp, code)) return { ok: true, id: row.id };
-
-  const [updated] = await db
-    .update(otpVerificationsTable)
-    .set({ attempts: sql`${otpVerificationsTable.attempts} + 1` })
-    .where(eq(otpVerificationsTable.id, row.id))
-    .returning({ attempts: otpVerificationsTable.attempts });
-  const left = OTP_MAX_WRONG_ATTEMPTS - (updated?.attempts ?? OTP_MAX_WRONG_ATTEMPTS);
-  return left > 0
-    ? { ok: false, status: 400, error: `Incorrect OTP. ${left} attempt${left === 1 ? "" : "s"} left.` }
-    : { ok: false, status: 429, error: "Too many wrong attempts. Please request a new OTP." };
-}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 type UserRow = typeof usersTable.$inferSelect;
@@ -140,6 +52,7 @@ const publicUser = (u: UserRow) => ({
   name: fullName(u),
   phone: u.phone,
   address: u.address,
+  addressLink: u.addressLink,
   isReseller: u.isReseller,
 });
 
@@ -177,7 +90,7 @@ function nameProblem(fname: unknown, lname: unknown): string | null {
 // ─── Send OTP (registration or forgot password) ──────────────────────────────
 router.post("/send-otp", async (req, res) => {
   try {
-    const phone = validPhone(req.body?.phone);
+    const phone = normalizePhone(req.body?.phone);
     if (!phone) return res.status(400).json({ error: "Invalid phone number format" });
     const purpose: OtpPurpose = req.body?.purpose === "reset" ? "reset" : "register";
 
@@ -204,7 +117,7 @@ router.post("/send-otp", async (req, res) => {
     const otp = generateOtp();
     const [verification] = await db
       .insert(otpVerificationsTable)
-      .values({ phone, otp, purpose, expiresAt: new Date(Date.now() + OTP_VALID_MINUTES * 60_000) })
+      .values({ phone, otpHash: hashOtp(phone, purpose, otp), purpose, expiresAt: new Date(Date.now() + OTP_VALID_MINUTES * 60_000) })
       .returning();
 
     // For local development only: let developers exercise the complete OTP flow without a paid SMS account.
@@ -247,7 +160,7 @@ router.post("/send-otp", async (req, res) => {
 router.post("/register", async (req, res) => {
   try {
     const { fname, lname, password, otp } = req.body ?? {};
-    const phone = validPhone(req.body?.phone);
+    const phone = normalizePhone(req.body?.phone);
     if (!fname || !req.body?.phone || !password || !otp) {
       return res.status(400).json({ error: "First name, phone, password and OTP are required" });
     }
@@ -311,7 +224,7 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { password } = req.body ?? {};
-    const phone = validPhone(req.body?.phone);
+    const phone = normalizePhone(req.body?.phone);
     if (!req.body?.phone || !password) {
       return res.status(400).json({ error: "Phone and password required" });
     }
@@ -332,7 +245,7 @@ router.post("/login", async (req, res) => {
       user.failedLoginAttempts = 0;
     }
 
-    const ok = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
+    const ok = await verifyPassword(password, user?.passwordHash ?? DUMMY_HASH);
     if (!user || !user.isActive || !ok) {
       if (user) {
         const [updated] = await db
@@ -366,7 +279,7 @@ router.post("/login", async (req, res) => {
 router.post("/reset-password", async (req, res) => {
   try {
     const { newPassword, otp } = req.body ?? {};
-    const phone = validPhone(req.body?.phone);
+    const phone = normalizePhone(req.body?.phone);
     if (!req.body?.phone || !newPassword || !otp) {
       return res.status(400).json({ error: "Phone, OTP and new password are required" });
     }
@@ -415,6 +328,7 @@ router.post("/reset-password", async (req, res) => {
               lname: old.lname,
               phone,
               address: old.address,
+              addressLink: old.addressLink,
               registeredAt: old.registeredAt,
               isReseller: old.isReseller,
               resellerCode: old.resellerCode,
@@ -429,6 +343,7 @@ router.post("/reset-password", async (req, res) => {
           await tx.update(ordersTable).set({ userId: created.userId }).where(eq(ordersTable.userId, old.userId));
           await tx.update(cartItemsTable).set({ userId: created.userId }).where(eq(cartItemsTable.userId, old.userId));
           await tx.update(chitPlansTable).set({ userId: created.userId }).where(eq(chitPlansTable.userId, old.userId));
+          await tx.update(customerAddressesTable).set({ userId: created.userId }).where(eq(customerAddressesTable.userId, old.userId));
           const hasWallet = await tx
             .select({ id: walletsTable.id })
             .from(walletsTable)
@@ -455,7 +370,7 @@ router.post("/reset-password", async (req, res) => {
 });
 
 // ─── Current user ────────────────────────────────────────────────────────────
-router.get("/me", authMiddleware as any, async (req: AuthRequest, res) => {
+router.get("/me", authMiddleware, async (req, res) => {
   try {
     const [user] = await db.select().from(usersTable).where(eq(usersTable.userId, req.userId!)).limit(1);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -469,7 +384,7 @@ router.get("/me", authMiddleware as any, async (req: AuthRequest, res) => {
 // ─── Delete account (soft delete) ────────────────────────────────────────────
 // Needs the password. Refused while money or open orders are tied to the account.
 // The row stays (is_deleted) and the phone number can register again as a fresh account.
-router.delete("/account", authMiddleware as any, async (req: AuthRequest, res) => {
+router.delete("/account", authMiddleware, async (req, res) => {
   try {
     const { password } = req.body ?? {};
     if (typeof password !== "string" || !password) {
@@ -482,7 +397,7 @@ router.delete("/account", authMiddleware as any, async (req: AuthRequest, res) =
     if (isLocked(user.lockedUntil, now)) {
       return res.status(429).json({ error: lockMessage(user.lockedUntil!, now), code: "ACCOUNT_LOCKED" });
     }
-    if (!(await bcrypt.compare(password, user.passwordHash))) {
+    if (!(await verifyPassword(password, user.passwordHash))) {
       const [updated] = await db
         .update(usersTable)
         .set({ failedLoginAttempts: sql`${usersTable.failedLoginAttempts} + 1` })
@@ -536,6 +451,7 @@ router.delete("/account", authMiddleware as any, async (req: AuthRequest, res) =
           .update(chitPlansTable)
           .set({ status: "cancelled" })
           .where(inArray(chitPlansTable.id, unpaidPlanIds));
+        await tx.update(walletsTable).set({ isReleased: true, releasedAt: new Date() }).where(eq(walletsTable.userId, user.userId));
       }
     });
     return res.json({ success: true });

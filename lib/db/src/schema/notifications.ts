@@ -13,7 +13,7 @@ export const notificationLogTable = pgTable("notification_log", {
   relatedId: integer("related_id"),
   providerId: text("provider_id"),
   error: text("error"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   index("notification_log_created_idx").on(t.createdAt),
   index("notification_log_kind_idx").on(t.kind, t.status),

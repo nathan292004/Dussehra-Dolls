@@ -7,6 +7,7 @@ import { requestLogger } from "./middlewares/request-logger";
 import router from "./routes";
 import path from "path";
 import { fileURLToPath } from "url";
+import { HttpError } from "./lib/http-error";
 import { verifyMetaWhatsAppWebhook, receiveMetaWhatsAppWebhook } from "./routes/meta-whatsapp-webhook";
 
 const app: Express = express();
@@ -134,6 +135,17 @@ app.use((_req: Request, res: Response) => {
 // ─── Global error handler ───────────────────────────────────
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
   const traceId = req.traceId || "unknown";
+  // Errors thrown on purpose (validation, not found, conflicts) carry their own status and message.
+  if (err instanceof HttpError) {
+    return res.status(err.status).json({ error: err.message, ...(err.code ? { code: err.code } : {}), ...err.extra });
+  }
+  // Malformed JSON in the request body.
+  if ((err as { type?: string }).type === "entity.parse.failed") {
+    return res.status(400).json({ error: "Request body is not valid JSON" });
+  }
+  if ((err as { type?: string }).type === "entity.too.large") {
+    return res.status(413).json({ error: "Request is too large" });
+  }
   console.error(
     JSON.stringify({
       level: "error",
@@ -143,7 +155,7 @@ app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
       timestamp: new Date().toISOString(),
     })
   );
-  res.status(500).json({
+  return res.status(500).json({
     error: "Internal server error",
     traceId,
   });

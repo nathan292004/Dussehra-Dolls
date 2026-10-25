@@ -9,6 +9,7 @@ import walletRouter from "./wallet";
 import adminRouter from "./admin";
 import adminAuthRouter from "./admin-auth";
 import { requireAdmin } from "../middlewares/admin-auth";
+import { auditAdminChanges } from "../lib/audit";
 import paymentRouter from "./payment";
 import razorpayWebhookRouter from "./razorpay-webhook";
 import whatsappRouter from "./whatsapp";
@@ -25,7 +26,7 @@ router.use("/chits", chitsRouter);
 router.use("/wallet", walletRouter);
 // Login is public; everything else under /admin requires a valid admin token.
 router.use("/admin/auth", adminAuthRouter);
-router.use("/admin", requireAdmin as any, adminRouter);
+router.use("/admin", requireAdmin, auditAdminChanges, adminRouter);
 // Called by Razorpay itself (no customer login); must come before the authenticated payment routes.
 router.use("/payment/razorpay-webhook", razorpayWebhookRouter);
 router.use("/payment", paymentRouter);

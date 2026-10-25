@@ -17,6 +17,7 @@ import Colors from "@/constants/colors";
 import { productImageUrl } from "@/lib/product-image";
 import { useCart } from "@/context/cart";
 import { useAuth } from "@/context/auth";
+import { useRefreshControl } from "@/hooks/use-refresh-control";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -70,6 +71,7 @@ export default function CartScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { cart, fetchCart, updateItem, removeItem } = useCart();
+  const refreshControl = useRefreshControl(fetchCart);
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -113,6 +115,7 @@ export default function CartScreen() {
     <View style={[styles.container, { paddingTop: topPad }]}>
       <Text style={styles.pageTitle}>Cart ({cart.itemCount})</Text>
       <FlatList
+        refreshControl={refreshControl}
         data={cart.items}
         keyExtractor={item => item.productId.toString()}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 160 + bottomPad }}

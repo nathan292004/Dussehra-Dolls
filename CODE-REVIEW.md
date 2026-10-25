@@ -2,9 +2,34 @@
 
 *Review of the full repository (API server, admin website, mobile app, database). Written for the project owner and any developer who will take this to launch.*
 
-*Latest update: **high-priority round done** (see section 0A). Earlier: critical round (section 0).*
+*Latest update: **medium-priority round done** (section 0B). Before that: high-priority round (section 0A). Earlier: critical round (section 0).*
 
 *First written 17 Oct 2026. **Updated 19 Oct 2026** after the critical issues (C1–C8) were fixed and tested; this version marks what is done and lists what is still open.*
+
+---
+
+## 0B. Status update — medium-priority round
+
+Tested by the end-to-end suite (94 checks, real PostgreSQL; only Twilio and Razorpay are simulated). Admin site, mobile app and API all pass the TypeScript compiler; the new screens have **not** been tapped through on a phone yet.
+
+| Item | Status | What was done |
+|---|---|---|
+| Pagination | ✅ Done | Every admin list (products, inventory, orders, users, vendors, wallets, chit approvals, chit subscriptions, audit log) is paged on the server with search and filters (`?page=&pageSize=&q=`), page size capped at 100. Customer app: products, orders and wallet history load 20 at a time (scroll / "Show older"). |
+| Validation | ✅ Done | Zod on all admin product, vendor, order and address routes (`lib/validate.ts`); bad ids, bad JSON and bad dates now return 400 instead of 500; admin forms use the same rules and show the server's message. |
+| Code structure | ✅ Mostly | `admin.ts` split into products / vendors / orders / customers modules; one central error handler (`HttpError`); OTP and password logic moved out of `routes/auth.ts` into `lib/otp.ts`, `lib/password.ts`, `lib/phone.ts`; the `as any` route casts are gone. `payment.ts` (about 500 lines) and the mobile `chits.tsx` / `auth.tsx` are still large. |
+| CI pipeline | ⏸ Later (yours) | – |
+| Time zones | ✅ Done | All timestamps are `timestamptz`, connections run in UTC, admin and app show times in IST. Existing values were converted using the database's own time zone setting, so check older rows if your dev database was not in UTC. |
+| Country picker | ✅ Done | Phone input has a country selector (default +91) on sign in, register and forgot password. The server checks the length for each listed country. |
+| OTP hashed | ✅ Done | Codes are stored as keyed HMAC hashes bound to phone and purpose. |
+| Pull to refresh | ✅ Done | App: home, cart, chits, wallet, orders, order detail, profile, addresses. Admin site: pull down on a touch screen, or the Refresh button. |
+| 60-day session | ✅ Done | A customer is signed out after 60 days without opening the app; any use renews it (`users.last_active_at`). |
+| One admin / audit | ✅ Done | One live admin session (a new login signs the old one out), `create-admin` refuses a second account, logout ends the session, and `admin_audit_log` records logins and every change (passwords never stored). New **Audit Log** page. |
+| Hard deletes | ✅ Already so | Products, vendors, cart rows and reminder claims were already hard deletes; left as is. |
+| Wallet release | ✅ Done | `wallets.is_released` (+ `released_at`). Approving a chit plan closes the wallet; the last payment opens it. While closed, wallet spending is refused (`WALLET_LOCKED`) and the app explains why. Chit cancellation is not built (as agreed). |
+| Delivery address | ✅ Done | Address form with flat/house number, building, street, locality, landmark, city, state, pincode and a Google Maps pin (map fills what it can). `users.address` and `users.address_link` follow the default address; orders keep the full address and map link. Checkout now uses a saved address. |
+| Resellers | ⏸ Later (yours) | – |
+
+**Things to know.** `JWT_SECRET` now also keys the OTP hash, so changing it invalidates unused codes (harmless). Existing local databases need `pnpm --filter @workspace/db run migrate`. Run `pnpm install` once: `zod` was added to the API server.
 
 ---
 
