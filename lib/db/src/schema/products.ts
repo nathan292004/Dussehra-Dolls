@@ -1,5 +1,6 @@
-import { pgTable, serial, text, numeric, integer, boolean, timestamp, jsonb, check } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, numeric, integer, boolean, timestamp, jsonb, check, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { vendorsTable } from "./vendors";
 
 export const productsTable = pgTable("products", {
   id: serial("id").primaryKey(),
@@ -19,12 +20,16 @@ export const productsTable = pgTable("products", {
   tags: jsonb("tags").$type<string[]>().default([]),
   serialNumber: text("serial_number"),
   location: text("location"),
+  // The reseller who supplied this doll (null = our own stock).
+  vendorId: integer("vendor_id").references(() => vendorsTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   // Safety nets in the database itself: stock can never go negative, and more can never be held than exists.
   check("products_stock_not_negative", sql`${t.stock} >= 0`),
   check("products_reserved_within_stock", sql`${t.reservedStock} >= 0 AND ${t.reservedStock} <= ${t.stock}`),
+  index("products_vendor_idx").on(t.vendorId),
+  index("products_listing_idx").on(t.isListed, t.category, t.createdAt),
 ]);
 
 export type Product = typeof productsTable.$inferSelect;

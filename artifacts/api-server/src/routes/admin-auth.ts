@@ -13,6 +13,7 @@ import {
 import { requireAdmin } from "../middlewares/admin-auth";
 import { logAdminAction } from "../lib/audit";
 import { pageOf, readPage, readSearch, likePattern } from "../lib/pagination";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -82,7 +83,7 @@ router.post("/login", async (req, res) => {
       admin: { id: admin.id, username: admin.username, name: admin.name },
     });
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -93,7 +94,7 @@ router.get("/me", requireAdmin, async (req, res) => {
     if (!admin) return res.status(401).json({ error: "Admin login required" });
     return res.json({ id: admin.id, username: admin.username, name: admin.name });
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
     return res.status(500).json({ error: "Internal server error" });
   }
 });

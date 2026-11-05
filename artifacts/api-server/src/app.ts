@@ -9,8 +9,13 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { HttpError } from "./lib/http-error";
 import { verifyMetaWhatsAppWebhook, receiveMetaWhatsAppWebhook } from "./routes/meta-whatsapp-webhook";
+import { accountDeletionPage } from "./routes/account-deletion-page";
+import { logger } from "./lib/logger";
 
 const app: Express = express();
+
+// First, so every request (including rate-limited ones, webhooks and bad JSON) gets a traceId and a log line.
+app.use(requestLogger);
 
 // ─── Security headers ──────────────────────────────────────
 app.use(
@@ -22,9 +27,6 @@ app.use(
 
 // ─── CORS ───────────────────────────────────────────────────
 const allowedHostPatterns = [
-  /\.replit\.dev$/,
-  /\.replit\.app$/,
-  /\.repl\.co$/,
   /^localhost$/,
   /^127\.0\.0\.1$/,
   /\.expo\.dev$/,
@@ -112,9 +114,6 @@ app.use(
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(cookieParser());
 
-// ─── Structured logging ────────────────────────────────────
-app.use(requestLogger);
-
 // ─── Static uploads directory (served under /api/uploads so proxy routes it) ─
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadsDir = path.join(__dirname, "..", "uploads");
@@ -127,38 +126,51 @@ app.use("/api/uploads", (_req, res, next) => {
 // ─── Routes ─────────────────────────────────────────────────
 app.use("/api", router);
 
+// Public page Google Play links to for account deletion (no app install needed).
+app.get("/account-deletion", accountDeletionPage);
+
 // ─── 404 handler ────────────────────────────────────────────
-app.use((_req: Request, res: Response) => {
-  res.status(404).json({ error: "Not found" });
+app.use((req: Request, res: Response) => {
+  res.status(404).json({ error: "Not found", traceId: req.traceId });
 });
 
 // ─── Global error handler ───────────────────────────────────
-app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-  const traceId = req.traceId || "unknown";
-  // Errors thrown on purpose (validation, not found, conflicts) carry their own status and message.
+// Routes can simply `throw new HttpError(...)` (or let any error escape): Express 5 sends it here.
+app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  const traceId = req.traceId;
+  if (res.headersSent) {
+    logger.error("error after the response was already sent", { err });
+    return;
+  }
   if (err instanceof HttpError) {
-    return res.status(err.status).json({ error: err.message, ...(err.code ? { code: err.code } : {}), ...err.extra });
-  }
-  // Malformed JSON in the request body.
-  if ((err as { type?: string }).type === "entity.parse.failed") {
-    return res.status(400).json({ error: "Request body is not valid JSON" });
-  }
-  if ((err as { type?: string }).type === "entity.too.large") {
-    return res.status(413).json({ error: "Request is too large" });
-  }
-  console.error(
-    JSON.stringify({
-      level: "error",
+    if (err.status >= 500) logger.error("request failed", { err });
+    return res.status(err.status).json({
+      error: err.message,
+      ...(err.code ? { code: err.code } : {}),
+      ...err.extra,
       traceId,
-      message: err.message,
-      stack: process.env.NODE_ENV === "production" ? undefined : err.stack,
-      timestamp: new Date().toISOString(),
-    })
-  );
-  return res.status(500).json({
-    error: "Internal server error",
-    traceId,
-  });
+    });
+  }
+  // Errors raised by express.json() / urlencoded() for a bad request body are the client's fault.
+  const bodyError = err as { type?: string; status?: number };
+  if (bodyError?.type === "entity.parse.failed") {
+    return res.status(400).json({ error: "The request body is not valid JSON.", code: "INVALID_JSON", traceId });
+  }
+  if (bodyError?.type === "entity.too.large") {
+    return res.status(413).json({ error: "The request body is too large.", code: "PAYLOAD_TOO_LARGE", traceId });
+  }
+  // Image uploads (multer): too big, too many files, unexpected field — all the client's to fix.
+  const uploadError = err as { name?: string; code?: string };
+  if (uploadError?.name === "MulterError") {
+    const tooLarge = uploadError.code === "LIMIT_FILE_SIZE";
+    return res.status(tooLarge ? 413 : 400).json({
+      error: tooLarge ? "The image must be 5 MB or smaller." : "The upload was not in the expected format.",
+      code: uploadError.code,
+      traceId,
+    });
+  }
+  logger.error("unhandled error", { err });
+  return res.status(500).json({ error: "Internal server error", traceId });
 });
 
 export default app;

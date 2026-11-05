@@ -5,6 +5,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { authMiddleware, AuthRequest } from "../middlewares/auth";
 import { fromPaise, sumPaise, toRupees } from "../lib/money";
 import { loadCartLines } from "../lib/cart-lines";
+import { logger } from "../lib/logger";
 
 const router = Router();
 router.use(authMiddleware);
@@ -40,7 +41,7 @@ router.get("/", async (req, res) => {
   try {
     return res.json(await buildCartResponse(req.userId!));
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -63,7 +64,7 @@ router.post("/", async (req, res) => {
       });
     return res.json(await buildCartResponse(req.userId!));
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -85,7 +86,7 @@ router.put("/:productId", async (req, res) => {
     }
     return res.json(await buildCartResponse(req.userId!));
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -98,7 +99,7 @@ router.delete("/:productId", async (req, res) => {
       .where(and(eq(cartItemsTable.userId, req.userId!), eq(cartItemsTable.productId, productId)));
     return res.json(await buildCartResponse(req.userId!));
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
     return res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -11,6 +11,7 @@ import { enrollmentDue, firstOfNextMonth } from "./chit-rules";
 import { fromPaise, paiseToDecimal, toPaise } from "./money";
 import { PaymentCheckError, loadCapturedPayment } from "./razorpay";
 import { notifyChitEmiPaid, notifyChitPartialPayment } from "./whatsapp-notifications";
+import { logger } from "./logger";
 
 export class ChitPaymentError extends Error {
   constructor(message: string, public status = 400) {
@@ -96,9 +97,15 @@ export async function applyChitPayment(opts: {
     }
     if (!plan.isApproved || plan.isRejected || plan.status !== "active") {
       // Money was captured for a plan that cannot take it. Needs a manual refund.
-      console.error(
-        `[ChitPayment] Payment ${opts.razorpayPaymentId} (${paiseToDecimal(opts.amountPaise)} INR) arrived for chit plan ${plan.id} (approved=${plan.isApproved}, rejected=${plan.isRejected}, status=${plan.status}); refund required.`,
-      );
+      logger.error("[ChitPayment] payment arrived for a plan that cannot take it; refund required", {
+        razorpayPaymentId: opts.razorpayPaymentId,
+        amount: paiseToDecimal(opts.amountPaise),
+        chitPlanId: plan.id,
+        isApproved: plan.isApproved,
+        isRejected: plan.isRejected,
+        planStatus: plan.status,
+        actionRequired: "manual_refund",
+      });
       throw new ChitPaymentError(
         plan.status === "completed"
           ? "This chit plan is already fully paid. Contact support for a refund."
@@ -193,7 +200,7 @@ export async function applyChitPayment(opts: {
 
   if (result.applied) {
     notifyAfterPayment(opts.userId, opts.chitPlanId, result).catch((e) =>
-      console.error("[WhatsApp] Chit payment notify failed:", e),
+      logger.error("[WhatsApp] Chit payment notify failed", { err: e }),
     );
   }
   const { planName: _planName, ...summary } = result;

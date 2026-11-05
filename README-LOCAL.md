@@ -5,14 +5,13 @@ The application is inside this `Dussehra-Dolls` directory. It is a pnpm workspac
 | Folder | Purpose |
 | --- | --- |
 | `artifacts/mobile` | Expo SDK 54 / React Native customer mobile app |
-| `artifacts/admin` | React / Vite admin, inventory, orders and vendor portal |
+| `artifacts/admin` | React / Vite admin, inventory, orders and resellers portal |
 | `artifacts/api-server` | Express API shared by mobile and admin |
-| `artifacts/mockup-sandbox` | Separate Replit UI mockup project |
+| `artifacts/chit-service` | Internal microservice that cancels chit plans (called only by the API) |
+| `artifacts/mockup-sandbox` | Separate UI mockup project |
 | `lib/db` | PostgreSQL schema and Drizzle tooling |
 | `lib/api-spec`, `lib/api-zod`, `lib/api-client-react` | API specification and shared generated libraries |
 | `scripts`, `attached_assets` | Utilities and reference assets |
-
-The mobile app is React Native, despite the Flutter wording in `replit.md`.
 
 ## Launch
 
@@ -22,7 +21,7 @@ Open PowerShell in this directory and run:
 .\Start-Local.ps1
 ```
 
-This starts local PostgreSQL on `127.0.0.1:5433`, applies the schema, then launches the API, admin and Expo. Keep the terminal open.
+This starts local PostgreSQL on `127.0.0.1:5433`, applies the schema, then launches the chit-service (`127.0.0.1:3002`), API, admin and Expo. Keep the terminal open. The launcher creates the shared `CHIT_SERVICE_TOKEN` in `artifacts/api-server/.env` the first time.
 
 - Admin: http://localhost:5173/admin/
 - API health: http://localhost:3001/api/readyz
@@ -165,11 +164,11 @@ after changing the key. The first database rollout also needs
 
 ## Local implementation details
 
-Removed Replit's native-binary exclusions, replaced Linux-only installation and development commands, added local admin defaults and API proxying, and added an explicit mobile API URL. Normalized Drizzle's schema path for Windows. Fixed existing TypeScript route and button export errors found during validation. Replit mobile launch settings are retained when Replit environment variables are present.
+Replaced Linux-only installation and development commands, added local admin defaults and API proxying, and added an explicit mobile API URL. Normalized Drizzle's schema path for Windows. Fixed existing TypeScript route and button export errors found during validation. All Replit-specific code paths, env vars and dev dependencies have been removed; the app only needs `EXPO_PUBLIC_API_URL` / `EXPO_PUBLIC_DOMAIN` and `API_PUBLIC_ORIGIN`.
 
 Local uploads use the same configured API origin so the phone can load inventory images. Added the missing Expo Babel preset and aligned native dependencies with SDK 54.
 
-The API production build now emits an ESM `index.mjs` bundle and passed a local production readiness smoke check. The mobile deployment build still needs a real public API URL, EAS project and Android release credentials.
+The API production build emits a CommonJS bundle (`dist/index.cjs`, `dist/worker.cjs`) and passed a local production readiness smoke check. The mobile deployment build still needs a real public API URL, EAS project and Android release credentials.
 
 ## Validation completed
 

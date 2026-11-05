@@ -7,6 +7,7 @@ import {
 } from "@workspace/db/schema";
 import { and, eq, lte, sql } from "drizzle-orm";
 import { MetaWhatsAppError, sendMetaWhatsAppTemplate } from "./meta-whatsapp";
+import { logger } from "./logger";
 
 const templates: Record<string, string | undefined> = {
   order_confirmation: process.env.META_WHATSAPP_ORDER_TEMPLATE_NAME,
@@ -130,10 +131,7 @@ export async function deliverOne(messageId?: number) {
       );
     }
   } catch (error) {
-    console.error(
-      "[WhatsApp] Send failed:",
-      error instanceof Error ? error.message : String(error),
-    );
+    logger.error("[WhatsApp] Send failed", { err: error, messageId: claimed.id });
     const providerError = error instanceof MetaWhatsAppError ? error : null;
     await db
       .update(whatsappMessagesTable)
@@ -179,7 +177,7 @@ export function startWhatsAppWorker() {
         );
       for (let i = 0; i < 10 && (await deliverOne()); i++);
     } catch (error) {
-      console.error("[WhatsApp] Worker error:", error);
+      logger.error("[WhatsApp] Worker error", { err: error });
     } finally {
       running = false;
     }

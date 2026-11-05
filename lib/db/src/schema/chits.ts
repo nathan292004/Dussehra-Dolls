@@ -26,6 +26,11 @@ export const chitPlansTable = pgTable("chit_plans", {
   reviewedBy: integer("reviewed_by").references(() => adminUsersTable.id),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
+  // Set when the plan is cancelled (by the customer, or because they deleted their account).
+  // Whatever had been paid in is released from the wallet's locked balance to spendable balance.
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  cancellationReason: text("cancellation_reason"),
+  releasedAmount: numeric("released_amount", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   check("chit_plans_not_approved_and_rejected", sql`NOT (${t.isApproved} AND ${t.isRejected})`),

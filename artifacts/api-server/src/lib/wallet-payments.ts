@@ -3,6 +3,7 @@ import { walletsTable, transactionsTable, usersTable } from "@workspace/db/schem
 import { eq, sql } from "drizzle-orm";
 import { fromPaise, paiseToDecimal, toPaise } from "./money";
 import { notifyWalletTopUp } from "./whatsapp-notifications";
+import { logger } from "./logger";
 
 /**
  * Credits a verified Razorpay wallet top-up. Safe to call twice for the same payment
@@ -48,7 +49,7 @@ export async function applyWalletTopUp(opts: { userId: string; razorpayPaymentId
         userId: user.userId,
         credited: fromPaise(opts.amountPaise),
         newBalance,
-      }).catch((e) => console.error("[WhatsApp] Wallet notify failed:", e));
+      }).catch((e) => logger.error("[WhatsApp] Wallet notify failed", { err: e }));
     }
   }
   return { applied, newBalance };

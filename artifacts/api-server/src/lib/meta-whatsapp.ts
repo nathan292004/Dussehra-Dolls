@@ -1,3 +1,5 @@
+import { logger } from "./logger";
+
 export class MetaWhatsAppError extends Error {
   constructor(
     message: string,
@@ -86,10 +88,7 @@ export async function sendMetaWhatsAppTemplate(
     );
   }
   if (!response.ok || !result.messages?.[0]?.id) {
-    console.error(
-      "[Meta WhatsApp] API error code:",
-      result.error?.code || response.status,
-    );
+    logger.error("[Meta WhatsApp] API error", { providerCode: result.error?.code || response.status });
     throw new MetaWhatsAppError(
       "Meta WhatsApp did not accept the message",
       String(result.error?.code || response.status),

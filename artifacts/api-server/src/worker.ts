@@ -11,27 +11,35 @@ import { startChitReminderScheduler } from "./lib/chit-reminder-scheduler";
 import { startCheckoutSweeper } from "./lib/order-payments";
 import { razorpay } from "./lib/razorpay";
 import { startWhatsAppWorker } from "./lib/whatsapp-worker";
+import { logger } from "./lib/logger";
 
 assertAuthConfigured();
 
 async function main() {
   await pool.query("SELECT 1");
-  console.log("[Worker] Database connected.");
+  logger.info("[Worker] Database connected.");
   startChitReminderScheduler();
   startCheckoutSweeper(razorpay);
   startWhatsAppWorker();
-  console.log("[Worker] Running. Press Ctrl+C to stop.");
+  logger.info("[Worker] Running. Press Ctrl+C to stop.");
 }
 
 const shutdown = async (signal: string) => {
-  console.log(`[Worker] ${signal} received, shutting down.`);
+  logger.info(`[Worker] ${signal} received, shutting down.`);
   await pool.end().catch(() => undefined);
   process.exit(0);
 };
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("unhandledRejection", (reason) => {
+  logger.error("[Worker] unhandled promise rejection", { err: reason });
+});
+process.on("uncaughtException", (err) => {
+  logger.error("[Worker] uncaught exception, exiting", { err });
+  process.exit(1);
+});
 
 main().catch((err) => {
-  console.error("[Worker] Fatal:", err);
+  logger.error("[Worker] Fatal", { err: err });
   process.exit(1);
 });

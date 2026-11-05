@@ -4,7 +4,7 @@ import { db } from "@workspace/db";
 import { productsTable, ordersTable, usersTable, walletsTable, chitPlansTable } from "@workspace/db/schema";
 import { toRupees } from "../lib/money";
 import adminProductsRouter from "./admin-products";
-import adminVendorsRouter from "./admin-vendors";
+import adminResellersRouter from "./admin-resellers";
 import adminOrdersRouter from "./admin-orders";
 import adminCustomersRouter from "./admin-customers";
 import adminChitsRouter from "./admin-chits";
@@ -62,7 +62,7 @@ router.get("/stats", async (_req, res) => {
 });
 
 router.use("/products", adminProductsRouter);
-router.use("/vendors", adminVendorsRouter);
+router.use("/resellers", adminResellersRouter);
 router.use("/orders", adminOrdersRouter);
 router.use(adminCustomersRouter); // /users and /wallets
 router.use("/chit-plans", adminChitsRouter);

@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   TextInput,
   Platform,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -72,6 +73,22 @@ function hasPendingOverdue(e: ChitPlan, now: Date) {
   if (e.reviewStatus !== "active" || e.outstanding <= 0) return false;
   const earlierUnpaid = e.outstanding > e.monthlyAmount + 0.001;
   return earlierUnpaid || now.getDate() > 10;
+}
+
+// Alert.alert has no buttons on web, so the web preview uses the browser's dialogs instead.
+function confirmAction(title: string, message: string, confirmLabel: string): Promise<boolean> {
+  if (Platform.OS === "web") return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+  return new Promise((resolve) =>
+    Alert.alert(title, message, [
+      { text: "Keep plan", style: "cancel", onPress: () => resolve(false) },
+      { text: confirmLabel, style: "destructive", onPress: () => resolve(true) },
+    ], { cancelable: true, onDismiss: () => resolve(false) }),
+  );
+}
+
+function notify(title: string, message: string) {
+  if (Platform.OS === "web") window.alert(`${title}\n\n${message}`);
+  else Alert.alert(title, message);
 }
 
 export default function ChitsScreen() {
@@ -176,6 +193,55 @@ export default function ChitsScreen() {
       alert("Network error. Please try again.");
     }
   };
+
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+
+  // Owner's rule: a plan can be cancelled any time before it completes. Whatever was paid in moves
+  // to the spendable wallet balance; no bonus points are given.
+  const cancelPlan = async (plan: ChitPlan) => {
+    const paid = Math.round(plan.amountPaid * 100) / 100;
+    const message = paid > 0
+      ? `The ${formatAmount(paid)} you've paid will move to your wallet, where you can spend it on dolls. You won't receive the ${formatPoints(plan.bonusPoints)} bonus. This can't be undone.`
+      : "Nothing has been paid on this plan yet. This can't be undone.";
+    if (!(await confirmAction(`Cancel "${plan.name}"?`, message, "Cancel plan"))) return;
+    setCancellingId(plan.id);
+    try {
+      const res = await fetch(`${getApiBase()}/chits/${plan.id}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify("Couldn't cancel the plan", data.error || "Please try again.");
+        return;
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      notify(
+        "Plan cancelled",
+        data.releasedAmount > 0 ? `${formatAmount(data.releasedAmount)} is now in your wallet.` : "Your plan has been cancelled.",
+      );
+      await fetchMyChits();
+    } catch {
+      notify("Couldn't cancel the plan", "Network error. Please try again.");
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
+  const cancelButton = (plan: ChitPlan) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Cancel plan ${plan.name}`}
+      style={styles.cancelPlanBtn}
+      onPress={() => void cancelPlan(plan)}
+      disabled={cancellingId !== null}
+    >
+      {cancellingId === plan.id
+        ? <ActivityIndicator size="small" color={Colors.light.error} />
+        : <Text style={styles.cancelPlanText}>Cancel plan</Text>}
+    </Pressable>
+  );
 
   const handleEnroll = async () => {
     if (!user) { router.push("/auth"); return; }
@@ -495,6 +561,7 @@ export default function ChitsScreen() {
                       </View>
                     </View>
                     <Text style={styles.cardFoot}>Plan year {e.cycleLabel}</Text>
+                    {cancelButton(e)}
                   </View>
                 );
               }
@@ -622,6 +689,8 @@ export default function ChitsScreen() {
                     <Text style={styles.payEmiBtnText}>Pay Pending – {formatAmount(e.outstanding)}</Text>
                   </Pressable>
                 )}
+
+                {!isCompleted && cancelButton(e)}
               </View>
               );
             })
@@ -676,7 +745,7 @@ const styles = StyleSheet.create({
   },
   countInput: {
     fontSize: 36, fontWeight: "700", color: Colors.light.text, textAlign: "center",
-    minWidth: 90, padding: 0,
+    minWidth: 90, maxWidth: "100%", width: 90, padding: 0,
   },
   countUnit: { fontSize: 12, color: Colors.light.textMuted, marginTop: -2 },
 
@@ -750,6 +819,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.tint, borderRadius: 12, paddingVertical: 12,
   },
   payEmiBtnText: { fontSize: 15, fontWeight: "500", color: "#fff" },
+  // Deliberately low-key (a text button, not a filled one) so it isn't tapped by mistake.
+  cancelPlanBtn: { alignSelf: "center", minHeight: 44, paddingHorizontal: 16, justifyContent: "center", marginTop: 2 },
+  cancelPlanText: { fontSize: 13, fontWeight: "600", color: Colors.light.error },
   payEmiBtnOverdue: { backgroundColor: Colors.light.error },
   myChitCardOverdue: { borderWidth: 1.5, borderColor: Colors.light.error + "60" },
   myChitCardCompleted: { borderWidth: 1.5, borderColor: "#2563eb40" },

@@ -20,7 +20,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/" },
   { icon: Package, label: "Products", href: "/products" },
-  { icon: Truck, label: "Vendors", href: "/vendors" },
+  { icon: Truck, label: "Resellers", href: "/resellers" },
   { icon: Store, label: "Inventory", href: "/inventory" },
   { icon: ListOrdered, label: "Orders", href: "/orders" },
   { icon: Users, label: "Users", href: "/users" },

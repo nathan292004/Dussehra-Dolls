@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout } from "@/components/layout";
 import { Dashboard } from "@/pages/dashboard";
 import { Products } from "@/pages/products";
-import { Vendors } from "@/pages/vendors";
+import { Resellers } from "@/pages/resellers";
 import { Inventory } from "@/pages/inventory";
 import { Orders } from "@/pages/orders";
 import { Users } from "@/pages/users";
@@ -38,7 +38,8 @@ function Router({ admin, onLogout }: { admin: AdminInfo | null; onLogout: () => 
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/products" component={Products} />
-        <Route path="/vendors" component={Vendors} />
+        <Route path="/resellers" component={Resellers} />
+        <Route path="/vendors" component={Resellers} />
         <Route path="/inventory" component={Inventory} />
         <Route path="/orders" component={Orders} />
         <Route path="/users" component={Users} />

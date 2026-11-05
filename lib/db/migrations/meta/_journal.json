@@ -29,6 +29,13 @@
       "when": 1792774774329,
       "tag": "0003_otp_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793844851027,
+      "tag": "0004_reseller_stock_and_chit_cancel",
+      "breakpoints": true
     }
   ]
 }

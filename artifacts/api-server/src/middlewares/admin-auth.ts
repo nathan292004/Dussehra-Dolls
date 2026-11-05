@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { adminUsersTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyAdminToken } from "../lib/admin-auth";
+import { logger } from "../lib/logger";
 
 declare global {
   namespace Express {
@@ -51,7 +52,7 @@ export async function requireAdmin(req: AdminRequest, res: Response, next: NextF
     req.adminUsername = admin.username;
     return next();
   } catch (err) {
-    console.error("[AdminAuth] error", err);
+    logger.error("[AdminAuth] error", { err: err });
     return res.status(401).json({ error: "Admin login required" });
   }
 }

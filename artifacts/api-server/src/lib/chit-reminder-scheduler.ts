@@ -14,6 +14,7 @@ import {
 } from "./chit-rules";
 import { chitPlanDue } from "./chit-view";
 import { toRupees } from "./money";
+import { logger } from "./logger";
 
 // Messages go out from this hour (IST) on the reminder days.
 const SEND_FROM_HOUR_IST = 10;
@@ -74,7 +75,7 @@ export async function sendChitReminders(now: Date = new Date()) {
   if (!kind || p.hour < SEND_FROM_HOUR_IST) return { sent: 0, failed: 0 };
 
   const periodKey = `${p.year}-${String(p.month + 1).padStart(2, "0")}`;
-  console.log(`[ChitReminder] Running ${kind} reminders for ${periodKey}`);
+  logger.info(`[ChitReminder] Running ${kind} reminders for ${periodKey}`);
 
   let sent = 0;
   let failed = 0;
@@ -126,12 +127,12 @@ export async function sendChitReminders(now: Date = new Date()) {
           .set({ status: "failed", lastError: (e instanceof Error ? e.message : String(e)).slice(0, 500), updatedAt: new Date() })
           .where(eq(chitReminderLogTable.id, claimId));
         failed++;
-        console.error(`[ChitReminder] Failed for chit plan ${plan.id}:`, e);
+        logger.error(`[ChitReminder] Failed for chit plan ${plan.id}`, { err: e });
       }
     }
-    console.log(`[ChitReminder] Done. Sent ${sent}, failed ${failed} (${kind}).`);
+    logger.info(`[ChitReminder] Done. Sent ${sent}, failed ${failed} (${kind}).`);
   } catch (err) {
-    console.error("[ChitReminder] Scheduler error:", err);
+    logger.error("[ChitReminder] Scheduler error", { err: err });
   }
   return { sent, failed };
 }
@@ -139,7 +140,7 @@ export async function sendChitReminders(now: Date = new Date()) {
 export function startChitReminderScheduler() {
   setTimeout(() => void sendChitReminders(), 30_000);
   setInterval(() => void sendChitReminders(), CHECK_EVERY_MS);
-  console.log(
+  logger.info(
     `[ChitReminder] Scheduler started: checks hourly, sends on the ${REMINDER_DAY_FIRST}th and ${REMINDER_DAY_SECOND}th of each month from ${SEND_FROM_HOUR_IST}:00 IST.`,
   );
 }

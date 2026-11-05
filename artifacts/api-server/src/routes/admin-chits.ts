@@ -9,6 +9,7 @@ import { describeChitPlan, chitPlanDue, chitReviewStatus } from "../lib/chit-vie
 import { cycleHasEnded } from "../lib/chit-rules";
 import { loadTrackedChitPlans } from "../lib/chit-tracking";
 import { notifyChitPlanApproved, notifyChitPlanRejected } from "../lib/whatsapp-notifications";
+import { logger } from "../lib/logger";
 
 // Mounted at /api/admin/chit-plans (admin login required, see routes/index.ts).
 const router = Router();
@@ -163,7 +164,7 @@ router.post("/:id/approve", async (req, res) => {
     notifyChitPlanApproved({
       phone: user.phone, name: customerName(user), userId: user.userId,
       chitPlanId: updated.id, planName: updated.name, amountDueNow: chitPlanDue(updated).outstanding,
-    }).catch((e) => console.error("[WhatsApp] Chit approved notify failed:", e));
+    }).catch((e) => logger.error("[WhatsApp] Chit approved notify failed", { err: e }));
   }
   res.json(describeChitPlan(updated));
 });
@@ -197,7 +198,7 @@ router.post("/:id/reject", async (req, res) => {
     notifyChitPlanRejected({
       phone: user.phone, name: customerName(user), userId: user.userId,
       chitPlanId: updated.id, planName: updated.name, reason: updated.rejectionReason,
-    }).catch((e) => console.error("[WhatsApp] Chit rejected notify failed:", e));
+    }).catch((e) => logger.error("[WhatsApp] Chit rejected notify failed", { err: e }));
   }
   res.json(describeChitPlan(updated));
 });

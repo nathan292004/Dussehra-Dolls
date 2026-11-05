@@ -37,55 +37,81 @@ interface Product {
 const PAGE_SIZE = 20;
 const CATEGORIES = ["All", "Traditional", "Modern", "Miniature", "Collector", "Children"];
 
+interface ProductPage {
+  items: Product[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
 export default function ShopScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { addToCart, fetchCart } = useCart();
   const [products, setProducts] = useState<Product[]>([]);
+  const [featured, setFeatured] = useState<Product[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  // Ignore answers to requests that were overtaken (e.g. the user kept typing).
+  const requestId = useRef(0);
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
-  const [loadingMore, setLoadingMore] = useState(false);
-  const pageRef = useRef(1);
-  const hasMoreRef = useRef(true);
-  const busyRef = useRef(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   // Products come 20 at a time; scrolling to the bottom loads the next 20.
-  const fetchProducts = useCallback(async (append = false) => {
-    if (busyRef.current) return;
-    if (append && !hasMoreRef.current) return;
-    busyRef.current = true;
-    const page = append ? pageRef.current + 1 : 1;
-    if (append) setLoadingMore(true);
+  const loadPage = useCallback(async (pageToLoad: number) => {
+    const id = ++requestId.current;
     try {
-      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      const params = new URLSearchParams({ page: String(pageToLoad), pageSize: String(PAGE_SIZE) });
       if (selectedCategory !== "All") params.set("category", selectedCategory);
-      if (search) params.set("search", search);
+      if (debouncedSearch) params.set("search", debouncedSearch);
       const res = await fetch(`${getApiBase()}/products?${params}`);
-      if (res.ok) {
-        const rows: Product[] = await res.json();
-        pageRef.current = page;
-        hasMoreRef.current = rows.length === PAGE_SIZE;
-        setProducts((prev) => {
-          if (!append) return rows;
-          const seen = new Set(prev.map((p) => p.id));
-          return [...prev, ...rows.filter((p) => !seen.has(p.id))];
-        });
-      }
+      if (!res.ok || id !== requestId.current) return;
+      const body: ProductPage = await res.json();
+      setProducts(prev => {
+        if (pageToLoad === 1) return body.items;
+        const seen = new Set(prev.map(p => p.id));
+        return [...prev, ...body.items.filter(p => !seen.has(p.id))];
+      });
+      setTotal(body.total);
+      setPage(body.page);
+      setTotalPages(body.totalPages);
     } catch { /* ignore */ } finally {
-      busyRef.current = false;
-      setIsLoading(false);
-      setRefreshing(false);
-      setLoadingMore(false);
+      if (id === requestId.current) {
+        setIsLoading(false);
+        setRefreshing(false);
+        setLoadingMore(false);
+      }
     }
-  }, [selectedCategory, search]);
+  }, [selectedCategory, debouncedSearch]);
 
-  useFocusEffect(useCallback(() => { void fetchProducts(); }, [fetchProducts]));
+  const fetchFeatured = useCallback(async () => {
+    try {
+      const res = await fetch(`${getApiBase()}/products?featured=true&pageSize=10`);
+      if (res.ok) setFeatured(((await res.json()) as ProductPage).items);
+    } catch { /* ignore */ }
+  }, []);
 
-  const onRefresh = () => { setRefreshing(true); void fetchProducts(); };
+  useFocusEffect(useCallback(() => { void loadPage(1); }, [loadPage]));
+  useFocusEffect(useCallback(() => { void fetchFeatured(); }, [fetchFeatured]));
+
+  const onRefresh = () => { setRefreshing(true); void loadPage(1); void fetchFeatured(); };
+
+  const loadMore = () => {
+    if (loadingMore || isLoading || refreshing || page >= totalPages) return;
+    setLoadingMore(true);
+    void loadPage(page + 1);
+  };
 
   const handleAddToCart = async (product: Product) => {
     if (!user) { router.push("/auth"); return; }
@@ -93,8 +119,6 @@ export default function ShopScreen() {
     await fetchCart();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
-
-  const featured = products.filter(p => p.isFeatured);
 
   const renderHeader = () => (
     <View>
@@ -174,7 +198,7 @@ export default function ShopScreen() {
 
       <View style={styles.sectionRow}>
         <Text style={styles.sectionTitle}>All Products</Text>
-        <Text style={styles.productCount}>{products.length} items</Text>
+        <Text style={styles.productCount}>{total} {total === 1 ? "item" : "items"}</Text>
       </View>
     </View>
   );
@@ -197,9 +221,9 @@ export default function ShopScreen() {
         contentContainerStyle={[styles.list, { paddingBottom: Platform.OS === "web" ? 118 : 100 + insets.bottom }]}
         columnWrapperStyle={styles.row}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.light.tint} />}
-        onEndReached={() => void fetchProducts(true)}
-        onEndReachedThreshold={0.4}
-        ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 16 }} color={Colors.light.tint} /> : null}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={loadingMore ? <ActivityIndicator style={styles.footerLoader} color={Colors.light.tint} /> : null}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Ionicons name="cube-outline" size={56} color={Colors.light.borderStrong} />
@@ -372,4 +396,5 @@ const styles = StyleSheet.create({
   row: { gap: 12, marginBottom: 12 },
   empty: { alignItems: "center", paddingTop: 60, gap: 12 },
   emptyText: { fontSize: 16, color: Colors.light.textMuted },
+  footerLoader: { paddingVertical: 16 },
 });

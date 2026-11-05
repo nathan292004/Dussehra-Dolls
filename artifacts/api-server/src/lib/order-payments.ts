@@ -11,6 +11,7 @@ import {
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { fromPaise, paiseToDecimal, toPaise } from "./money";
 import { notifyOrderConfirmed } from "./whatsapp-notifications";
+import { logger } from "./logger";
 
 export interface StockShortage {
   productId: number;
@@ -238,7 +239,7 @@ export async function notifyOrder(order: typeof ordersTable.$inferSelect) {
       items: order.items.map((i) => ({ productName: i.productName, quantity: i.quantity, price: i.price })),
     });
   } catch (e) {
-    console.error("[WhatsApp] Order notify failed:", e);
+    logger.error("[WhatsApp] Order notify failed", { err: e });
   }
 }
 
@@ -308,7 +309,7 @@ export async function refundRazorpayPayment(rp: Razorpay, paymentId: string, amo
     await rp.payments.refund(paymentId, { amount: amountPaise, speed: "normal" });
     return true;
   } catch (err) {
-    console.error(`[Refund] FAILED for payment ${paymentId} (${paiseToDecimal(amountPaise)} INR). Refund manually.`, err);
+    logger.error(`[Refund] FAILED for payment ${paymentId} (${paiseToDecimal(amountPaise)} INR). Refund manually.`, { err: err });
     return false;
   }
 }
@@ -357,7 +358,7 @@ export async function sweepExpiredCheckouts(rp: Razorpay | null) {
       }
       if (await releasePendingOrder(order.id)) released++;
     } catch (err) {
-      console.error(`[Checkouts] Could not process order ${order.id}:`, err);
+      logger.error(`[Checkouts] Could not process order ${order.id}`, { err: err });
     }
   }
   return { released, confirmed };
@@ -367,10 +368,10 @@ export function startCheckoutSweeper(rp: Razorpay | null) {
   const run = () =>
     sweepExpiredCheckouts(rp)
       .then((r) => {
-        if (r.released || r.confirmed) console.log(`[Checkouts] released ${r.released}, confirmed ${r.confirmed}`);
+        if (r.released || r.confirmed) logger.info(`[Checkouts] released ${r.released}, confirmed ${r.confirmed}`);
       })
-      .catch((e) => console.error("[Checkouts] sweep failed:", e));
+      .catch((e) => logger.error("[Checkouts] sweep failed", { err: e }));
   setTimeout(run, 45_000);
   setInterval(run, 5 * 60_000);
-  console.log(`[Checkouts] Sweeper started: unpaid checkouts release their stock after ${CHECKOUT_HOLD_MINUTES} minutes.`);
+  logger.info(`[Checkouts] Sweeper started: unpaid checkouts release their stock after ${CHECKOUT_HOLD_MINUTES} minutes.`);
 }

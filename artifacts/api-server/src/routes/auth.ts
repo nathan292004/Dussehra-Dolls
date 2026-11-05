@@ -32,9 +32,11 @@ import {
   checkOtp,
   generateOtp,
   hashOtp,
+  otpPurposeFrom,
   type OtpPurpose,
 } from "../lib/otp";
 import { DUMMY_HASH, hashPassword, passwordProblem, verifyPassword } from "../lib/password";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -87,16 +89,16 @@ function nameProblem(fname: unknown, lname: unknown): string | null {
   return null;
 }
 
-// ─── Send OTP (registration or forgot password) ──────────────────────────────
+// ─── Send OTP (registration, forgot password, or web account deletion) ───────
 router.post("/send-otp", async (req, res) => {
   try {
     const phone = normalizePhone(req.body?.phone);
     if (!phone) return res.status(400).json({ error: "Invalid phone number format" });
-    const purpose: OtpPurpose = req.body?.purpose === "reset" ? "reset" : "register";
+    const purpose = otpPurposeFrom(req.body?.purpose);
 
     const existing = await findLiveUser(phone);
     if (purpose === "register" && existing) return res.status(409).json(ALREADY_REGISTERED);
-    if (purpose === "reset" && !existing) {
+    if (purpose !== "register" && !existing) {
       return res.status(404).json({ error: "No account found with this number.", code: "PHONE_NOT_REGISTERED" });
     }
 
@@ -125,9 +127,12 @@ router.post("/send-otp", async (req, res) => {
       return res.json({ success: true, message: "Local development code generated", developmentOtp: otp });
     }
 
-    const meta = { userId: existing?.userId ?? null, kind: purpose === "reset" ? "otp_reset" : "otp_register" } as const;
+    const kind = purpose === "reset" ? "otp_reset" : purpose === "delete" ? "otp_delete" : "otp_register";
+    const meta = { userId: existing?.userId ?? null, kind } as const;
+    // The deletion code says what it does, so nobody can be talked into reading it out to a stranger.
+    const warning = purpose === "delete" ? " It will DELETE your DollDime account. Ignore this if you did not ask." : "";
     try {
-      await sendSms(phone, `Your DollDime verification code is: ${otp}. Valid for ${OTP_VALID_MINUTES} minutes.`);
+      await sendSms(phone, `Your DollDime verification code is: ${otp}. Valid for ${OTP_VALID_MINUTES} minutes.${warning}`);
       await recordNotification(meta, "sms", phone, { ok: true });
     } catch (smsErr) {
       await recordNotification(meta, "sms", phone, {
@@ -139,7 +144,7 @@ router.post("/send-otp", async (req, res) => {
         .update(otpVerificationsTable)
         .set({ isDeleted: true })
         .where(eq(otpVerificationsTable.id, verification.id));
-      console.error("SMS failed:", smsErr instanceof SmsDeliveryError ? smsErr.code : "SMS_PROVIDER_UNAVAILABLE");
+      logger.error("OTP SMS failed", { providerCode: smsErr instanceof SmsDeliveryError ? smsErr.code : "SMS_PROVIDER_UNAVAILABLE" });
       return res.status(503).json({
         error:
           process.env.NODE_ENV === "development" && smsErr instanceof SmsDeliveryError
@@ -151,7 +156,7 @@ router.post("/send-otp", async (req, res) => {
 
     return res.json({ success: true, message: `OTP sent to ${phone}` });
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -215,7 +220,7 @@ router.post("/register", async (req, res) => {
       throw err;
     }
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -267,7 +272,7 @@ router.post("/login", async (req, res) => {
     }
     return res.json(sessionFor(user));
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -364,7 +369,7 @@ router.post("/reset-password", async (req, res) => {
       throw err;
     }
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -376,7 +381,7 @@ router.get("/me", authMiddleware, async (req, res) => {
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     return res.json(publicUser(user));
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -384,79 +389,135 @@ router.get("/me", authMiddleware, async (req, res) => {
 // ─── Delete account (soft delete) ────────────────────────────────────────────
 // Needs the password. Refused while money or open orders are tied to the account.
 // The row stays (is_deleted) and the phone number can register again as a fresh account.
+// The same rules apply in the app (DELETE /account) and on the public web page Google Play
+// links to (POST /delete-account-web), so both go through the two helpers below.
+
+type Refusal = { status: number; body: Record<string, unknown> };
+
+/** Checks the password with the usual lockout (5 wrong tries = locked 15 minutes). */
+async function checkPasswordForDeletion(user: UserRow, password: unknown): Promise<Refusal | null> {
+  if (typeof password !== "string" || !password) {
+    return { status: 400, body: { error: "Please enter your password to delete your account" } };
+  }
+  const now = new Date();
+  if (isLocked(user.lockedUntil, now)) {
+    return { status: 429, body: { error: lockMessage(user.lockedUntil!, now), code: "ACCOUNT_LOCKED" } };
+  }
+  if (await verifyPassword(password, user.passwordHash)) return null;
+  const [updated] = await db
+    .update(usersTable)
+    .set({ failedLoginAttempts: sql`${usersTable.failedLoginAttempts} + 1` })
+    .where(eq(usersTable.userId, user.userId))
+    .returning({ attempts: usersTable.failedLoginAttempts });
+  if (updated && updated.attempts >= MAX_FAILED_LOGINS) {
+    const lockedUntil = new Date(Date.now() + LOCK_MINUTES * 60_000);
+    await db.update(usersTable).set({ lockedUntil }).where(eq(usersTable.userId, user.userId));
+    return { status: 429, body: { error: lockMessage(lockedUntil), code: "ACCOUNT_LOCKED" } };
+  }
+  // 403 (not 401) so the app doesn't mistake a wrong password for an expired session.
+  return { status: 403, body: { error: "Incorrect password" } };
+}
+
+/**
+ * Deletes (soft) the account unless money or an open order is still tied to it. `alsoInTx`
+ * runs inside the same transaction (the web flow uses it to mark its OTP used).
+ */
+async function closeAccount(user: UserRow, alsoInTx?: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => Promise<void>): Promise<Refusal | null> {
+  const reasons: string[] = [];
+  const [wallet] = await db.select().from(walletsTable).where(eq(walletsTable.userId, user.userId)).limit(1);
+  if (wallet && toPaise(wallet.balance) > 0) {
+    reasons.push("You still have money in your wallet. Please use it or contact support before deleting your account.");
+  }
+  if (wallet && toPaise(wallet.chitLockedBalance) > 0) {
+    reasons.push("You have savings in a chit plan. Cancel the plan in the app (the money moves to your wallet) or wait until it completes.");
+  }
+  const plans = await db.select().from(chitPlansTable).where(eq(chitPlansTable.userId, user.userId));
+  // Plans with nothing paid (still under review, or approved but unpaid) are simply closed.
+  const unpaidPlanIds = plans
+    .filter((p) => p.status === "active" && !p.isRejected && toPaise(p.amountPaid) === 0)
+    .map((p) => p.id);
+  const openOrders = await db
+    .select({ id: ordersTable.id, status: ordersTable.status, walletAmount: ordersTable.walletAmount })
+    .from(ordersTable)
+    .where(
+      and(
+        eq(ordersTable.userId, user.userId),
+        inArray(ordersTable.status, ["pending", "confirmed", "processing", "shipped"]),
+      ),
+    );
+  if (openOrders.some((o) => o.status !== "pending" || toPaise(o.walletAmount) > 0)) {
+    reasons.push("You have an order that is not delivered yet. Please wait until it is delivered.");
+  }
+  if (reasons.length) {
+    return { status: 409, body: { error: reasons[0], reasons, code: "ACCOUNT_HAS_OPEN_ITEMS" } };
+  }
+
+  await db.transaction(async (tx) => {
+    if (alsoInTx) await alsoInTx(tx);
+    await tx
+      .update(usersTable)
+      .set({ isDeleted: true, deletedAt: new Date(), deletionReason: "account_deleted" })
+      .where(eq(usersTable.userId, user.userId));
+    if (unpaidPlanIds.length) {
+      await tx
+        .update(chitPlansTable)
+        .set({ status: "cancelled", cancelledAt: new Date(), cancellationReason: "account_deleted", releasedAmount: "0.00" })
+        .where(inArray(chitPlansTable.id, unpaidPlanIds));
+      // The wallet closes while an approved plan is being paid; closing that plan without
+      // payment reopens it, unless the customer has another approved plan still being paid.
+      await tx.update(walletsTable).set({ isReleased: true, releasedAt: new Date() }).where(eq(walletsTable.userId, user.userId));
+    }
+  });
+  return null;
+}
+
 router.delete("/account", authMiddleware, async (req, res) => {
   try {
-    const { password } = req.body ?? {};
-    if (typeof password !== "string" || !password) {
-      return res.status(400).json({ error: "Please enter your password to delete your account" });
-    }
-
     const [user] = await db.select().from(usersTable).where(eq(usersTable.userId, req.userId!)).limit(1);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const now = new Date();
-    if (isLocked(user.lockedUntil, now)) {
-      return res.status(429).json({ error: lockMessage(user.lockedUntil!, now), code: "ACCOUNT_LOCKED" });
-    }
-    if (!(await verifyPassword(password, user.passwordHash))) {
-      const [updated] = await db
-        .update(usersTable)
-        .set({ failedLoginAttempts: sql`${usersTable.failedLoginAttempts} + 1` })
-        .where(eq(usersTable.userId, user.userId))
-        .returning({ attempts: usersTable.failedLoginAttempts });
-      if (updated && updated.attempts >= MAX_FAILED_LOGINS) {
-        const lockedUntil = new Date(Date.now() + LOCK_MINUTES * 60_000);
-        await db.update(usersTable).set({ lockedUntil }).where(eq(usersTable.userId, user.userId));
-        return res.status(429).json({ error: lockMessage(lockedUntil), code: "ACCOUNT_LOCKED" });
-      }
-      // 403 (not 401) so the app doesn't mistake a wrong password for an expired session.
-      return res.status(403).json({ error: "Incorrect password" });
-    }
-
-    const reasons: string[] = [];
-    const [wallet] = await db.select().from(walletsTable).where(eq(walletsTable.userId, user.userId)).limit(1);
-    if (wallet && toPaise(wallet.balance) > 0) {
-      reasons.push("You still have money in your wallet. Please use it or contact support before deleting your account.");
-    }
-    if (wallet && toPaise(wallet.chitLockedBalance) > 0) {
-      reasons.push("You have savings locked in a chit plan. It can be deleted after the plan completes.");
-    }
-    const plans = await db.select().from(chitPlansTable).where(eq(chitPlansTable.userId, user.userId));
-    // Plans with nothing paid (still under review, or approved but unpaid) are simply closed.
-    const unpaidPlanIds = plans
-      .filter((p) => p.status === "active" && !p.isRejected && toPaise(p.amountPaid) === 0)
-      .map((p) => p.id);
-    const openOrders = await db
-      .select({ id: ordersTable.id, status: ordersTable.status, walletAmount: ordersTable.walletAmount })
-      .from(ordersTable)
-      .where(
-        and(
-          eq(ordersTable.userId, user.userId),
-          inArray(ordersTable.status, ["pending", "confirmed", "processing", "shipped"]),
-        ),
-      );
-    if (openOrders.some((o) => o.status !== "pending" || toPaise(o.walletAmount) > 0)) {
-      reasons.push("You have an order that is not delivered yet. Please wait until it is delivered.");
-    }
-    if (reasons.length) {
-      return res.status(409).json({ error: reasons[0], reasons, code: "ACCOUNT_HAS_OPEN_ITEMS" });
-    }
-
-    await db.transaction(async (tx) => {
-      await tx
-        .update(usersTable)
-        .set({ isDeleted: true, deletedAt: new Date(), deletionReason: "account_deleted" })
-        .where(eq(usersTable.userId, user.userId));
-      if (unpaidPlanIds.length) {
-        await tx
-          .update(chitPlansTable)
-          .set({ status: "cancelled" })
-          .where(inArray(chitPlansTable.id, unpaidPlanIds));
-        await tx.update(walletsTable).set({ isReleased: true, releasedAt: new Date() }).where(eq(walletsTable.userId, user.userId));
-      }
-    });
+    const refused = (await checkPasswordForDeletion(user, req.body?.password)) ?? (await closeAccount(user));
+    if (refused) return res.status(refused.status).json(refused.body);
     return res.json({ success: true });
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Public: used by the /account-deletion web page (no app or login needed). Proves ownership of
+// the number with an SMS code (purpose "delete") AND the account password.
+router.post("/delete-account-web", async (req, res) => {
+  try {
+    const { otp, password } = req.body ?? {};
+    const phone = normalizePhone(req.body?.phone);
+    if (!phone) return res.status(400).json({ error: "Invalid phone number" });
+    if (typeof otp !== "string" || !/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ error: "The code must be 6 digits" });
+    }
+    const user = await findLiveUser(phone);
+    if (!user) {
+      return res.status(404).json({ error: "No account found with this number.", code: "PHONE_NOT_REGISTERED" });
+    }
+    const check = await checkOtp(phone, "delete", otp);
+    if (!check.ok) return res.status(check.status).json({ error: check.error });
+
+    const refused =
+      (await checkPasswordForDeletion(user, password)) ??
+      (await closeAccount(user, async (tx) => {
+        const used = await tx
+          .update(otpVerificationsTable)
+          .set({ verified: true })
+          .where(and(eq(otpVerificationsTable.id, check.id), eq(otpVerificationsTable.verified, false)))
+          .returning({ id: otpVerificationsTable.id });
+        if (!used.length) throw new Error("OTP_ALREADY_USED");
+      }));
+    if (refused) return res.status(refused.status).json(refused.body);
+    return res.json({ success: true });
+  } catch (err) {
+    if (err instanceof Error && err.message === "OTP_ALREADY_USED") {
+      return res.status(400).json({ error: "Invalid or expired code. Please request a new one." });
+    }
+    logger.error("web account deletion failed", { err });
     return res.status(500).json({ error: "Internal server error" });
   }
 });

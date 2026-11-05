@@ -20,7 +20,7 @@ if (!existsSync(envFile)) {
   writeFileSync(envFile, `NODE_ENV=development\nPORT=3001\nDATABASE_URL=postgresql://dolldime:${password}@127.0.0.1:5433/dolldime\n`);
 }
 process.loadEnvFile(envFile);
-for (const name of ['ADMIN_TOKEN_SECRET', 'JWT_SECRET']) {
+for (const name of ['ADMIN_TOKEN_SECRET', 'JWT_SECRET', 'CHIT_SERVICE_TOKEN']) {
   if (!process.env[name]) {
     process.env[name] = randomBytes(32).toString('hex');
     appendFileSync(envFile, `
@@ -103,8 +103,14 @@ function shutdown(code = 0) {
 }
 process.on('SIGINT', () => shutdown());
 process.on('SIGTERM', () => shutdown());
+// Chit cancellation microservice: internal only (127.0.0.1), the API calls it with the shared token.
+const chitServicePort = process.env.CHIT_SERVICE_PORT || '3002';
+launch('Chit service', ['--filter', '@workspace/chit-service', 'run', 'dev'], {
+  NODE_ENV: 'development', CHIT_SERVICE_PORT: chitServicePort, CHIT_SERVICE_HOST: '127.0.0.1',
+});
 launch('API', ['--filter', '@workspace/api-server', 'run', 'dev'], {
   NODE_ENV: 'development', PORT: apiPort,
+  CHIT_SERVICE_URL: process.env.CHIT_SERVICE_URL || `http://127.0.0.1:${chitServicePort}`,
   API_PUBLIC_ORIGIN: apiUrl.replace(/\/api$/, ''),
   CORS_ALLOWED_ORIGINS: [process.env.CORS_ALLOWED_ORIGINS, 'http://localhost:8081', lanIp && `http://${lanIp}:8081`].filter(Boolean).join(','),
 });

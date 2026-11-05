@@ -8,6 +8,7 @@ import { ChitPaymentError, applyChitPayment } from "../lib/chit-payments";
 import { applyWalletTopUp } from "../lib/wallet-payments";
 import { finalizeShopOrderPayment } from "../lib/order-payments";
 import { toPaise } from "../lib/money";
+import { logger } from "../lib/logger";
 
 // Razorpay calls this URL itself when a payment is captured, so a payment is still recorded
 // if the customer closes the app right after paying. It handles chit payments, shop orders
@@ -64,7 +65,7 @@ router.post("/", async (req: Request, res) => {
         if (!order || order.userId !== userId) return res.json({ ignored: true });
         const onlinePaise = toPaise(order.total) - toPaise(order.walletAmount);
         if (loaded.amountPaise !== onlinePaise) {
-          console.error(`[RazorpayWebhook] Order ${order.id}: paid ${loaded.amountPaise} paise, expected ${onlinePaise}. Needs manual review.`);
+          logger.error(`[RazorpayWebhook] Order ${order.id}: paid ${loaded.amountPaise} paise, expected ${onlinePaise}. Needs manual review.`);
           return res.json({ ignored: true });
         }
         await finalizeShopOrderPayment(razorpay, {
@@ -77,7 +78,7 @@ router.post("/", async (req: Request, res) => {
     }
     return res.json({ success: true });
   } catch (err) {
-    console.error("[RazorpayWebhook] failed:", err);
+    logger.error("[RazorpayWebhook] failed", { err: err });
     // Rejections that will never succeed on retry get a 200; anything else is retried by Razorpay.
     return res.status(err instanceof ChitPaymentError ? 200 : 500).json({ error: "Could not process webhook" });
   }

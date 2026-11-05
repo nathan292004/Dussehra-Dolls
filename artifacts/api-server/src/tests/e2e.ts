@@ -25,6 +25,7 @@ process.env.RAZORPAY_KEY_SECRET = "secret";
 process.env.RAZORPAY_WEBHOOK_SECRET = "whsec";
 process.env.JWT_SECRET = "c".repeat(40);
 process.env.ADMIN_TOKEN_SECRET = "a".repeat(40);
+process.env.CHIT_SERVICE_TOKEN = "t".repeat(40);
 
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
@@ -94,6 +95,13 @@ function gatewayPay(orderId: string, amount?: number) {
 // ---------- server + helpers ----------
 const server = app.listen(0);
 const base = `http://127.0.0.1:${(server.address() as any).port}/api`;
+// The separate chit-service runs in-process too, so the real API -> service hop is exercised.
+// (Path held in a variable so this package's tsc doesn't try to compile the other package.)
+const chitServiceModule = "../../../chit-service/src/app";
+const { createApp: createChitService } = await import(chitServiceModule);
+const chitService = createChitService().listen(0);
+const chitServiceUrl = `http://127.0.0.1:${(chitService.address() as any).port}`;
+process.env.CHIT_SERVICE_URL = chitServiceUrl;
 const tick = (ms = 350) => new Promise((r) => setTimeout(r, ms));
 
 import http from "node:http";
@@ -183,6 +191,25 @@ async function assertStockInvariant(label: string) {
 }
 const section = (t: string) => console.log("\n== " + t);
 const ok = (t: string) => console.log("  ok  " + t);
+
+// Chit rules depend on the calendar (the plan year starts in October; what's due grows each month),
+// so those sections run with the JS clock shifted to a fixed date. The clock keeps ticking (it is
+// offset, not stopped). Postgres's own now() is NOT shifted, so don't use this around code that
+// compares JS-written timestamps with now() in SQL (e.g. the reminder claim's stale check).
+const PLAN_YEAR_DATE = "2026-10-20T12:00:00+05:30"; // month 1 of the 2026 plan year, after the 10th
+async function withFrozenClock<T>(iso: string, fn: () => Promise<T>): Promise<T> {
+  const RealDate = Date;
+  const offset = new RealDate(iso).getTime() - RealDate.now();
+  class ShiftedDate extends RealDate {
+    constructor(...args: any[]) {
+      if (args.length === 0) super(RealDate.now() + offset);
+      else super(...(args as [any]));
+    }
+    static now() { return RealDate.now() + offset; }
+  }
+  globalThis.Date = ShiftedDate as DateConstructor;
+  try { return await fn(); } finally { globalThis.Date = RealDate; }
+}
 
 // ---------- start from an empty database ----------
 {
@@ -585,16 +612,16 @@ section("only one admin session at a time + audit log");
   adminToken = second.body.token;
 
   // Every change is written to the audit log (and secrets are never stored).
-  const made = await api("POST", "/admin/vendors", { name: "Audit Vendor", phone: "98765 43210", password: "should-not-be-stored" }, adminToken);
+  const made = await api("POST", "/admin/resellers", { name: "Audit Reseller", phone: "98765 43210", password: "should-not-be-stored" }, adminToken);
   assert.equal(made.status, 201, JSON.stringify(made.body));
   await tick(300);
   const logRows = await q("select action, admin_username, status_code, details from admin_audit_log order by id");
   assert.ok(logRows.some((r: any) => r.action === "login" && r.admin_username === "boss"));
   assert.ok(logRows.some((r: any) => r.action === "login_failed"));
-  const vendorRow = logRows.find((r: any) => r.action === "vendors.create");
+  const vendorRow = logRows.find((r: any) => r.action === "resellers.create");
   assert.ok(vendorRow && vendorRow.status_code === 201 && vendorRow.admin_username === "boss");
   assert.equal(vendorRow.details.password, "[hidden]");
-  const auditApi = await api("GET", "/admin/auth/audit-log?q=vendors", undefined, adminToken);
+  const auditApi = await api("GET", "/admin/auth/audit-log?q=resellers", undefined, adminToken);
   assert.equal(auditApi.status, 200); assert.ok(auditApi.body.items.length >= 1 && auditApi.body.total >= 1);
   assert.equal((await api("GET", "/admin/auth/audit-log", undefined, u1.token)).status, 401);
 
@@ -604,7 +631,7 @@ section("only one admin session at a time + audit log");
   assert.equal((await api("GET", "/admin/stats", undefined, third.body.token)).status, 401);
   const fourth = await api("POST", "/admin/auth/login", { username: "boss", password: "passwordpassword" });
   adminToken = fourth.body.token;
-  assert.equal((await api("DELETE", `/admin/vendors/${made.body.id}`, undefined, adminToken)).status, 200);
+  assert.equal((await api("DELETE", `/admin/resellers/${made.body.id}`, undefined, adminToken)).status, 200);
   ok("one live admin session (new login signs the old one out), logout works, audit log records logins and changes without secrets");
 }
 for (const bad of [19.999, "abc", -1, "1.234", null]) {
@@ -620,6 +647,8 @@ ok("product prices validated strictly (no silent rounding)");
 const usersList = await api("GET", "/admin/users?status=closed&pageSize=100", undefined, adminToken);
 assert.ok(usersList.body.items.some((u: any) => u.isDeleted === true && u.deletionReason === "password_reset"));
 assert.ok(usersList.body.items.some((u: any) => u.isDeleted === true && u.deletionReason === "account_deleted"));
+assert.ok(usersList.body.items.every((u: any) => u.isDeleted === true), "status=closed returns only closed accounts");
+assert.ok(usersList.body.counts.closed >= 2 && usersList.body.counts.active >= 1);
 ok("admin users list shows soft-deleted accounts");
 
 // =====================================================================================
@@ -674,7 +703,7 @@ assert.equal((await q("select count(*)::int c from transactions where user_id=$1
 await tick();
 assert.ok(waMessages(buyer.phone).some((m) => m.includes("Order Confirmed")));
 const myOrders = await api("GET", "/orders", undefined, buyer.token);
-assert.equal(myOrders.body[0].walletAmount, 400); assert.equal(myOrders.body[0].onlineAmount, 0);
+assert.equal(myOrders.body.items[0].walletAmount, 400); assert.equal(myOrders.body.items[0].onlineAmount, 0); assert.equal(myOrders.body.page, 1);
 ok("(a) wallet covers the order: confirmed instantly, wallet 1000 -> 600, stock -1, cart cleared, WhatsApp sent");
 
 // (k) exact balance
@@ -696,7 +725,7 @@ ord = (await q("select status, payment_status, wallet_amount::text w, payment_me
 assert.deepEqual([ord.status, ord.payment_status, ord.w, ord.m], ["pending", "pending", "300.00", "wallet+razorpay"]);
 assert.equal(await stockOf(pB), 10); assert.equal(await reservedOf(pB), 1);
 assert.equal((await q("select stock_reserved from orders where id=$1", [dbOrderB]))[0].stock_reserved, true);
-assert.equal((await api("GET", "/orders", undefined, buyer.token)).body.every((o: any) => o.id !== dbOrderB), true);
+assert.equal((await api("GET", "/orders?pageSize=50", undefined, buyer.token)).body.items.every((o: any) => o.id !== dbOrderB), true);
 ok("(b) wallet short: 300 held, 700 to pay online, order pending, not listed as a purchase yet");
 // bad verifications
 let pay = gatewayPay(rzB, 70000);
@@ -926,7 +955,7 @@ section("H2 stock reservation (freeze at checkout, sell on payment)");
   assert.equal(await reservedOf(pZ), 2); assert.equal(await stockOf(pZ), 3);
   let prod = await api("GET", `/products/${pZ}`);
   assert.equal(prod.body.stock, 1, "customers see what is still buyable"); assert.ok(!("reservedStock" in prod.body));
-  assert.equal((await api("GET", "/products")).body.find((p3: any) => p3.id === pZ).stock, 1);
+  assert.equal((await api("GET", "/products?search=Scarce%20Doll&pageSize=50")).body.items.find((p3: any) => p3.id === pZ).stock, 1);
   ok("A's checkout freezes 2 of 3; the catalogue shows 1 left");
 
   // B wants 2 but only 1 is free: refused BEFORE any payment step
@@ -1062,13 +1091,16 @@ section("H2 stock reservation (freeze at checkout, sell on payment)");
 
 // =====================================================================================
 section("H1 chit plan approval flow");
-{
+await withFrozenClock(PLAN_YEAR_DATE, async () => {
   const adminList = async (status = "under_review") => (await api("GET", `/admin/chit-plans?status=${status}`, undefined, adminToken)).body;
   const c1 = await signup(phoneN(), "Chitra");
   sent.length = 0;
   let cp = await api("POST", "/chits/enroll-custom", { chits: 4 }, c1.token);
   assert.equal(cp.status, 201, JSON.stringify(cp.body));
   const plan1 = cp.body;
+  // A late joiner owes every month of the plan year so far (October = 1), so what's due depends on today's date.
+  const { monthsDueFor } = await import("../lib/chit-rules");
+  const due = 2000 * monthsDueFor(plan1.cycleStartYear);
   assert.equal(plan1.reviewStatus, "under_review"); assert.equal(plan1.isApproved, false); assert.equal(plan1.isRejected, false);
   assert.equal(plan1.outstanding, 0, "nothing is payable while under review");
   assert.equal(plan1.monthlyAmount, 2000); assert.equal(plan1.totalAmount, 22000); assert.equal(plan1.bonusPoints, 2200);
@@ -1095,7 +1127,7 @@ section("H1 chit plan approval flow");
   // admin sees it
   let queue = await adminList();
   const q1 = queue.plans.find((p3: any) => p3.id === plan1.id);
-  assert.ok(q1); assert.equal(q1.customer.userId, c1.id); assert.equal(q1.customer.phone, c1.phone); assert.equal(q1.amountDueOnApproval, 2000);
+  assert.ok(q1); assert.equal(q1.customer.userId, c1.id); assert.equal(q1.customer.phone, c1.phone); assert.equal(q1.amountDueOnApproval, due);
   assert.ok(queue.counts.under_review >= 1);
   assert.equal((await api("GET", "/admin/chit-plans", undefined, c1.token)).status, 401);
   assert.equal((await api("GET", "/admin/chit-plans")).status, 401);
@@ -1127,10 +1159,10 @@ section("H1 chit plan approval flow");
   assert.equal(both.find((b) => b.status === 409)!.body.code, "ALREADY_REVIEWED");
   const approved = both.find((b) => b.status === 200)!.body;
   assert.equal(approved.isApproved, true); assert.equal(approved.isRejected, false); assert.equal(approved.reviewStatus, "active");
-  assert.equal(approved.outstanding, 2000);
+  assert.equal(approved.outstanding, due);
   const row1b = (await q("select * from chit_plans where id=$1", [plan1.id]))[0];
   assert.equal(row1b.is_approved, true); assert.equal(row1b.is_rejected, false); assert.equal(row1b.reviewed_by, adm.id); assert.ok(row1b.reviewed_at);
-  await tick(); assert.ok(waMessages(c1.phone).some((m) => m.includes("Chit Plan Approved") && m.includes("2,000")));
+  await tick(); assert.ok(waMessages(c1.phone).some((m) => m.includes("Chit Plan Approved") && m.includes(due.toLocaleString("en-IN"))));
   assert.equal(waMessages(c1.phone).filter((m) => m.includes("Chit Plan Approved")).length, 1, "customer told once");
   let rej = await api("POST", `/admin/chit-plans/${plan1.id}/reject`, { reason: "late" }, adminToken); assert.equal(rej.status, 409);
   ok("approve: two admins at once, one wins; flags updated; reviewer + time recorded; customer told once; cannot be rejected afterwards");
@@ -1145,17 +1177,17 @@ section("H1 chit plan approval flow");
 
   // customer can now pay (partial then rest), as before
   pr1 = await api("POST", "/payment/create-chit-payment", { chitPlanId: plan1.id }, c1.token);
-  assert.equal(pr1.status, 200, JSON.stringify(pr1.body)); assert.equal(pr1.body.amount, 200000);
+  assert.equal(pr1.status, 200, JSON.stringify(pr1.body)); assert.equal(pr1.body.amount, due * 100);
   pay = gatewayPay(pr1.body.razorpayOrderId, 50000);
   x = await api("POST", "/payment/verify-chit-payment", pay, c1.token);
-  assert.equal(x.status, 200); assert.equal(x.body.partial, true); assert.equal(x.body.outstanding, 1500);
+  assert.equal(x.status, 200); assert.equal(x.body.partial, true); assert.equal(x.body.outstanding, due - 500);
   await tick(); assert.ok(waMessages(c1.phone).some((m) => m.includes("Not Completed in Full")));
   pr1 = await api("POST", "/payment/create-chit-payment", { chitPlanId: plan1.id }, c1.token);
-  assert.equal(pr1.body.amount, 150000);
+  assert.equal(pr1.body.amount, (due - 500) * 100);
   pay = gatewayPay(pr1.body.razorpayOrderId);
   x = await api("POST", "/payment/verify-chit-payment", pay, c1.token);
   assert.equal(x.body.partial, false); assert.equal(x.body.outstanding, 0);
-  assert.deepEqual(await wallet(c1.id), { b: "0.00", l: "2000.00" });
+  assert.deepEqual(await wallet(c1.id), { b: "0.00", l: due.toFixed(2) });
   assert.equal((await api("POST", "/payment/create-chit-payment", { chitPlanId: plan1.id }, c1.token)).status, 400);
   assert.equal((await api("POST", "/payment/create-chit-payment", { chitPlanId: plan1.id }, other.token)).status, 404);
   ok("after approval: partial payment flagged, rest paid, money locked in the wallet; strangers refused");
@@ -1202,7 +1234,7 @@ section("H1 chit plan approval flow");
   assert.equal((await api("POST", `/admin/chit-plans/${plan5.id}/approve`, {}, adminToken)).status, 409);
   assert.equal((await adminList("all")).plans.some((p3: any) => p3.id === plan5.id), false);
   ok("deleting the account cancels a plan that is still under review (kept in the database, cannot be approved)");
-}
+});
 
 // =====================================================================================
 section("H5 reminders and notification tracking");
@@ -1317,7 +1349,8 @@ section("H5 reminders and notification tracking");
   assert.equal(waMessages(rFresh.phone).length, 0, "someone else is sending that one right now");
   ok("a dead sender's stale claim is taken over; a live in-flight claim is respected");
 
-  // ---------- the admin dashboard
+  // ---------- the admin dashboard (its plan-year maths uses today's date, so pin it)
+  await withFrozenClock(PLAN_YEAR_DATE, async () => {
   await q("delete from chit_reminder_log"); await q("delete from notification_log");
   await q("update chit_plans set status='cancelled' where status='active'");
   const dOwes = await signup(phoneN(), "DashOwes"), dBehind = await signup(phoneN(), "DashBehind"), dPaid = await signup(phoneN(), "DashPaid"), dPart = await signup(phoneN(), "DashPartial"), dNew = await signup(phoneN(), "DashNew");
@@ -1370,6 +1403,300 @@ section("H5 reminders and notification tracking");
   assert.equal((await api("GET", "/admin/ops", undefined, dOwes.token)).status, 401);
   assert.equal((await api("GET", "/admin/ops")).status, 401);
   ok("admin dashboard: late / pending / multi-month lists, reminder + notification counts, failures, approvals, collections, stock, wallets");
+  });
+}
+
+// =====================================================================================
+section("Chit cancellation (separate chit-service)");
+await withFrozenClock(PLAN_YEAR_DATE, async () => {
+  const cancel = (id: number | string, token?: string, body: unknown = {}) => api("POST", `/chits/${id}/cancel`, body, token);
+  const planRow = async (id: number) => (await q("select * from chit_plans where id=$1", [id]))[0];
+  const releases = async (userId: string) =>
+    (await q("select amount::text a from transactions where user_id=$1 and description like 'Chit savings released%'", [userId])).map((r: any) => r.a);
+
+  // an approved plan with the October payment made: 2 chits = ₹1,000 locked in the wallet
+  const k1 = await signup(phoneN(), "Canceller");
+  const kp = (await api("POST", "/chits/enroll-custom", { chits: 2 }, k1.token)).body;
+  assert.equal((await api("POST", `/admin/chit-plans/${kp.id}/approve`, {}, adminToken)).status, 200);
+  const order = await api("POST", "/payment/create-chit-payment", { chitPlanId: kp.id }, k1.token);
+  assert.equal((await api("POST", "/payment/verify-chit-payment", gatewayPay(order.body.razorpayOrderId), k1.token)).status, 200);
+  assert.deepEqual(await wallet(k1.id), { b: "0.00", l: "1000.00" });
+
+  const stranger = await signup(phoneN(), "Stranger");
+  assert.equal((await cancel(kp.id)).status, 401);
+  assert.equal((await cancel(kp.id, stranger.token)).status, 404, "someone else's plan looks like a missing one");
+  assert.equal((await cancel("abc", k1.token)).status, 404);
+  assert.equal((await cancel(999999, k1.token)).status, 404);
+  assert.equal((await planRow(kp.id)).status, "active");
+  ok("only the plan's owner can cancel it; strangers and bad ids get 404, no login gets 401");
+
+  sent.length = 0;
+  const c = await cancel(kp.id, k1.token, { reason: "Moving abroad" });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  assert.equal(c.body.alreadyCancelled, false); assert.equal(c.body.releasedAmount, 1000);
+  assert.deepEqual(c.body.wallet, { balance: 1000, lockedBalance: 0 });
+  assert.deepEqual(await wallet(k1.id), { b: "1000.00", l: "0.00" });
+  const cr = await planRow(kp.id);
+  assert.equal(cr.status, "cancelled"); assert.ok(cr.cancelled_at); assert.equal(cr.cancellation_reason, "Moving abroad"); assert.equal(cr.released_amount, "1000.00");
+  assert.deepEqual(await releases(k1.id), ["1000.00"]);
+  await tick(); assert.ok(waMessages(k1.phone).some((m) => m.includes("Chit Plan Cancelled") && m.includes("1,000")));
+  ok("cancel: money paid moves from locked to spendable wallet, logged as a credit, plan marked cancelled with time + reason, customer told");
+
+  const again = await cancel(kp.id, k1.token);
+  assert.equal(again.status, 200); assert.equal(again.body.alreadyCancelled, true); assert.equal(again.body.releasedAmount, 1000);
+  assert.deepEqual(await wallet(k1.id), { b: "1000.00", l: "0.00" }); assert.equal((await releases(k1.id)).length, 1);
+  assert.equal((await api("GET", "/chits/my", undefined, k1.token)).body.length, 0, "cancelled plans leave My Chits");
+  assert.equal((await api("POST", "/payment/create-chit-payment", { chitPlanId: kp.id }, k1.token)).status, 400, "a cancelled plan can't be paid");
+  assert.equal((await api("POST", "/chits/enroll-custom", { chits: 1 }, k1.token)).status, 201, "can start a new plan for the same year");
+  ok("cancelling twice is safe (no double release); the plan can't be paid; the customer can start a new one");
+
+  // two cancels at the same moment: money released exactly once
+  const k2 = await signup(phoneN(), "DoubleTap");
+  const k2p = (await api("POST", "/chits/enroll-custom", { chits: 4 }, k2.token)).body;
+  await api("POST", `/admin/chit-plans/${k2p.id}/approve`, {}, adminToken);
+  const o2 = await api("POST", "/payment/create-chit-payment", { chitPlanId: k2p.id }, k2.token);
+  await api("POST", "/payment/verify-chit-payment", gatewayPay(o2.body.razorpayOrderId, 50000), k2.token); // part paid: ₹500
+  const both = await Promise.all([cancel(k2p.id, k2.token), cancel(k2p.id, k2.token)]);
+  assert.deepEqual(both.map((b) => b.status), [200, 200]);
+  assert.deepEqual(both.map((b) => b.body.alreadyCancelled).sort(), [false, true]);
+  assert.deepEqual(await wallet(k2.id), { b: "500.00", l: "0.00" }); assert.deepEqual(await releases(k2.id), ["500.00"]);
+  ok("two simultaneous cancels: one does the work, the other sees it done; a part payment is released exactly once");
+
+  // nothing paid: under review, or approved but unpaid
+  const k3 = await signup(phoneN(), "NeverPaid");
+  const k3p = (await api("POST", "/chits/enroll-custom", { chits: 1 }, k3.token)).body;
+  const c3 = await cancel(k3p.id, k3.token);
+  assert.equal(c3.status, 200); assert.equal(c3.body.releasedAmount, 0); assert.equal(c3.body.wallet, null);
+  assert.deepEqual(await wallet(k3.id), { b: "0.00", l: "0.00" }); assert.equal((await releases(k3.id)).length, 0);
+  assert.equal((await planRow(k3p.id)).cancellation_reason, "customer_request");
+  assert.equal((await api("POST", `/admin/chit-plans/${k3p.id}/approve`, {}, adminToken)).status, 409, "admins can't approve a cancelled plan");
+  ok("a plan with nothing paid (e.g. still under review) is simply closed; no wallet movement");
+
+  // completed and rejected plans can't be cancelled
+  const k4 = await signup(phoneN(), "Finisher");
+  const k4p = (await api("POST", "/chits/enroll-custom", { chits: 1 }, k4.token)).body;
+  await q("update chit_plans set is_approved=true, status='completed' where id=$1", [k4p.id]);
+  const c4 = await cancel(k4p.id, k4.token); assert.equal(c4.status, 409); assert.equal(c4.body.code, "PLAN_COMPLETED");
+  const k5 = await signup(phoneN(), "Refused");
+  const k5p = (await api("POST", "/chits/enroll-custom", { chits: 1 }, k5.token)).body;
+  await api("POST", `/admin/chit-plans/${k5p.id}/reject`, { reason: "No" }, adminToken);
+  const c5 = await cancel(k5p.id, k5.token); assert.equal(c5.status, 409); assert.equal(c5.body.code, "PLAN_REJECTED");
+  ok("completed and rejected plans can't be cancelled (clear error codes)");
+
+  // a wallet that doesn't add up: refuse and change nothing
+  const k6 = await signup(phoneN(), "Inconsistent");
+  const k6p = (await api("POST", "/chits/enroll-custom", { chits: 1 }, k6.token)).body;
+  await q("update chit_plans set is_approved=true, amount_paid='500' where id=$1", [k6p.id]);
+  await setWallet(k6.id, "0", "100");
+  const c6 = await cancel(k6p.id, k6.token);
+  assert.equal(c6.status, 500); assert.equal(c6.body.code, "WALLET_INCONSISTENT"); assert.ok(c6.body.traceId);
+  assert.equal((await planRow(k6p.id)).status, "active"); assert.deepEqual(await wallet(k6.id), { b: "0.00", l: "100.00" });
+  ok("if the wallet's locked balance doesn't cover what the plan says was paid, nothing changes and it's logged for support");
+
+  // the service is down, or the two services disagree on the shared secret
+  process.env.CHIT_SERVICE_URL = "http://127.0.0.1:1";
+  const down = await cancel(k6p.id, k6.token);
+  assert.equal(down.status, 503); assert.equal(down.body.code, "CHIT_SERVICE_UNAVAILABLE");
+  process.env.CHIT_SERVICE_URL = chitServiceUrl;
+  const realToken = process.env.CHIT_SERVICE_TOKEN;
+  process.env.CHIT_SERVICE_TOKEN = "wrong-" + "x".repeat(40);
+  assert.equal((await cancel(k6p.id, k6.token)).status, 503);
+  process.env.CHIT_SERVICE_TOKEN = realToken;
+  const direct = await fetch(`${chitServiceUrl}/internal/chit-plans/${k6p.id}/cancel`, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-User-Id": k6.id }, body: "{}",
+  });
+  assert.equal(direct.status, 401, "the service refuses calls without the internal token");
+  assert.equal((await fetch(`${chitServiceUrl}/health`)).status, 200);
+  ok("service unreachable or secret mismatch -> 503 for the customer; the service itself refuses calls without the token");
+});
+
+// =====================================================================================
+section("Google Play account deletion page + error handling");
+{
+  const page = await fetch(base.replace(/\/api$/, "") + "/account-deletion");
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.match(html, /Delete your DollDime account/); assert.match(html, /\/api\/auth\/delete-account-web/);
+
+  assert.equal((await api("POST", "/auth/send-otp", { phone: phoneN(), purpose: "delete" })).status, 404, "unknown number");
+  const dWeb = await signup(phoneN(), "WebQuitter", "webpass1");
+  await freeResend(dWeb.phone);
+  sent.length = 0;
+  assert.equal((await api("POST", "/auth/send-otp", { phone: dWeb.tenDigits, purpose: "delete" })).status, 200);
+  assert.ok(sent.some((m) => m.to === dWeb.phone && m.body.includes("DELETE")), "the SMS says what the code does");
+  const code = lastOtp(dWeb.phone);
+  const wrongCode = code === "000000" ? "111111" : "000000";
+  assert.equal((await api("POST", "/auth/delete-account-web", { phone: dWeb.tenDigits, otp: wrongCode, password: "webpass1" })).status, 400);
+  assert.equal((await api("POST", "/auth/delete-account-web", { phone: dWeb.tenDigits, otp: code, password: "nope-nope" })).status, 403);
+  assert.equal((await q("select is_deleted from users where user_id=$1", [dWeb.id]))[0].is_deleted, false);
+  const del = await api("POST", "/auth/delete-account-web", { phone: dWeb.tenDigits, otp: code, password: "webpass1" });
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+  assert.equal((await q("select is_deleted, deletion_reason from users where user_id=$1", [dWeb.id]))[0].is_deleted, true);
+  assert.equal((await api("GET", "/auth/me", undefined, dWeb.token)).status, 401, "signed out everywhere");
+  assert.equal((await api("POST", "/auth/delete-account-web", { phone: dWeb.tenDigits, otp: code, password: "webpass1" })).status, 404);
+  ok("web deletion: needs the SMS code (purpose 'delete') AND the password; wrong code/password change nothing; then the account is closed");
+
+  // the same money/order rules as the app
+  const dMoney = await signup(phoneN(), "HasMoney", "moneypass");
+  await setWallet(dMoney.id, "50");
+  await freeResend(dMoney.phone);
+  await api("POST", "/auth/send-otp", { phone: dMoney.tenDigits, purpose: "delete" });
+  const blocked = await api("POST", "/auth/delete-account-web", { phone: dMoney.tenDigits, otp: lastOtp(dMoney.phone), password: "moneypass" });
+  assert.equal(blocked.status, 409); assert.equal(blocked.body.code, "ACCOUNT_HAS_OPEN_ITEMS"); assert.ok(blocked.body.reasons.length >= 1);
+  // a registration code can't be used to delete
+  const dOther = await signup(phoneN(), "WrongPurpose", "otherpass1");
+  await freeResend(dOther.phone);
+  await api("POST", "/auth/send-otp", { phone: dOther.tenDigits, purpose: "reset" });
+  assert.equal((await api("POST", "/auth/delete-account-web", { phone: dOther.tenDigits, otp: lastOtp(dOther.phone), password: "otherpass1" })).status, 400);
+  ok("web deletion follows the app's rules (blocked while money is in the wallet); a code sent for another purpose is refused");
+
+  const bad = await rawRequest("POST", "/auth/login", { "Content-Type": "application/json" }, "{not json");
+  assert.equal(bad.status, 400); const badBody = JSON.parse(bad.text);
+  assert.equal(badBody.code, "INVALID_JSON"); assert.ok(badBody.traceId);
+  const missing = await api("GET", "/nope");
+  assert.equal(missing.status, 404); assert.ok(missing.body.traceId);
+  ok("malformed JSON is a 400 (not a 500); every error response carries a traceId for support");
+}
+
+// =====================================================================================
+section("Resellers portal");
+{
+  const R = (path: string, method = "GET", body?: unknown) => api(method, `/admin/resellers${path}`, body, adminToken);
+  assert.equal((await R("", "POST", {})).status, 400);
+  assert.equal((await R("", "POST", { name: "X", email: "not-an-email" })).status, 400);
+  assert.equal((await api("GET", "/admin/resellers")).status, 401);
+  const A = (await R("", "POST", { name: "Asha Crafts", contact: "Asha", phone: "+91 98765 43210", notes: "Kondapalli dolls" })).body;
+  const B = (await R("", "POST", { name: "Bala Toys" })).body;
+  assert.equal(A.isActive, true); assert.equal(A.metrics.unitsSold, 0);
+  ok("create resellers (name required, email/phone checked, admin only)");
+
+  // a product added with a reseller and opening stock logs the hand-over
+  const pA = (await api("POST", "/admin/products", { name: "Asha Rani doll", price: "250", category: "Traditional", stock: 10, resellerId: A.id }, adminToken)).body;
+  assert.equal(pA.resellerId, A.id);
+  const opening = await q("select * from reseller_stock_entries where product_id=$1", [pA.id]);
+  assert.equal(opening.length, 1); assert.equal(opening[0].kind, "received"); assert.equal(opening[0].quantity, 10); assert.equal(opening[0].created_by, adm.id);
+
+  let st = await R(`/${A.id}/stock`, "POST", { productId: pA.id, kind: "received", quantity: 5, note: "Diwali batch" });
+  assert.equal(st.status, 201); assert.equal(st.body.stock, 15);
+  st = await R(`/${A.id}/stock`, "POST", { productId: pA.id, kind: "returned", quantity: 3 });
+  assert.equal(st.status, 201); assert.equal(await stockOf(pA.id), 12);
+  st = await R(`/${A.id}/stock`, "POST", { productId: pA.id, kind: "returned", quantity: 50 });
+  assert.equal(st.status, 409); assert.equal(st.body.code, "NOT_ENOUGH_STOCK"); assert.equal(await stockOf(pA.id), 12);
+  assert.equal((await R(`/${B.id}/stock`, "POST", { productId: pA.id, kind: "received", quantity: 1 })).body.code, "PRODUCT_OTHER_RESELLER");
+  for (const bad of [{ productId: pA.id, kind: "gift", quantity: 1 }, { productId: pA.id, kind: "received", quantity: 0 }, { productId: pA.id, kind: "received", quantity: 1.5 }, { kind: "received", quantity: 1 }]) {
+    assert.equal((await R(`/${A.id}/stock`, "POST", bad)).status, 400, JSON.stringify(bad));
+  }
+  const own = await makeProduct("Own stock doll", "100.00", 0);
+  assert.equal((await R(`/${B.id}/stock`, "POST", { productId: own, kind: "returned", quantity: 1 })).body.code, "PRODUCT_NOT_LINKED");
+  assert.equal((await R(`/${B.id}/stock`, "POST", { productId: own, kind: "received", quantity: 2 })).status, 201);
+  assert.equal((await q("select vendor_id from products where id=$1", [own]))[0].vendor_id, B.id, "first hand-over links an unassigned product");
+  ok("stock received/returned moves product stock in the same transaction; can't return more than is free; products stay with their reseller");
+
+  // sales through the app count for the reseller
+  const buyer = await signup(phoneN(), "ResellerBuyer");
+  await setWallet(buyer.id, "1000");
+  await fillCart(buyer.token, [[pA.id, 2]]);
+  const bought = await api("POST", "/payment/create-order", { address: "12 Temple Street, Mysuru", useWallet: true }, buyer.token);
+  assert.equal(bought.status, 200, JSON.stringify(bought.body)); assert.equal(bought.body.paidByWallet, true);
+  // an unpaid checkout for the same doll must NOT count as sold
+  const browser = await signup(phoneN(), "JustLooking");
+  await fillCart(browser.token, [[pA.id, 1]]);
+  assert.equal((await api("POST", "/payment/create-order", { address: "1 MG Road, Bengaluru" }, browser.token)).status, 200);
+
+  let detail = (await R(`/${A.id}`)).body;
+  assert.deepEqual(
+    [detail.metrics.unitsReceived, detail.metrics.unitsReturned, detail.metrics.unitsSold, detail.metrics.revenue, detail.metrics.unitsInStock, detail.metrics.unitsAvailable],
+    [15, 3, 2, 500, 10, 9],
+  );
+  assert.equal(detail.metrics.sellThrough, 16.7); // 2 of the 12 handed over (net)
+  assert.equal(detail.metrics.stockDifference, 0, "received - returned - sold = on the shelf");
+  const row = detail.products.find((p3: any) => p3.id === pA.id);
+  assert.deepEqual([row.unitsReceived, row.unitsReturned, row.unitsSold, row.revenue, row.available], [15, 3, 2, 500, 9]);
+  assert.ok(detail.monthly.length >= 1 && detail.monthly.at(-1).units === 2);
+  ok("per-reseller numbers: received, returned, sold (paid orders only), revenue, on shelf, sell-through; per product and per month");
+
+  await api("PUT", `/admin/products/${pA.id}`, { stock: 14 }, adminToken); // edited by hand, outside the reseller records
+  detail = (await R(`/${A.id}`)).body;
+  assert.equal(detail.metrics.stockDifference, -4, "a manual stock edit shows up as a difference to check");
+  ok("stock changed outside the reseller records is flagged (stock difference)");
+
+  const ins = (await R("/insights")).body;
+  assert.equal(ins.leaderboard[0].id, A.id); assert.equal(ins.leaderboard[0].unitsSold, 2);
+  assert.equal(ins.totals.unitsSold, 2); assert.equal(ins.totals.revenue, 500);
+  assert.ok(ins.totals.shareOfStoreRevenue > 0 && ins.totals.shareOfStoreRevenue <= 100);
+  assert.ok(ins.resellers.total >= 2 && Array.isArray(ins.monthly) && Array.isArray(ins.slowMovers));
+  assert.ok(ins.restock.some((r2: any) => r2.productId === own && r2.available === 2), "nearly-out reseller dolls listed for restock");
+  ok("insights: leaderboard, totals, share of store revenue, monthly trend, slow movers, restock list");
+
+  const entries = (await R(`/${A.id}/stock-entries?pageSize=2`)).body;
+  assert.equal(entries.total, 3); assert.equal(entries.items.length, 2); assert.equal(entries.totalPages, 2);
+  assert.equal(entries.items[0].kind, "returned", "newest first");
+  ok("stock history is paginated, newest first");
+
+  const list = (await R("?q=asha")).body;
+  assert.equal(list.total, 1); assert.equal(list.items[0].metrics.unitsSold, 2);
+  assert.equal((await api("GET", `/admin/products?reseller=${A.id}&pageSize=100`, undefined, adminToken)).body.items.every((p3: any) => p3.resellerId === A.id), true);
+  assert.ok((await api("GET", "/admin/products?reseller=none&pageSize=100", undefined, adminToken)).body.items.every((p3: any) => p3.resellerId === null));
+  ok("reseller list search; products filtered by reseller or own stock");
+
+  // deactivate rather than delete once there's history
+  let del = await R(`/${A.id}`, "DELETE");
+  assert.equal(del.status, 409); assert.equal(del.body.code, "RESELLER_HAS_HISTORY");
+  assert.equal((await R(`/${A.id}`, "PUT", { isActive: false })).body.isActive, false);
+  assert.equal((await api("POST", "/admin/products", { name: "Late", price: "1", category: "Modern", resellerId: A.id }, adminToken)).body.code, "RESELLER_INACTIVE");
+  assert.equal((await R(`/${A.id}/stock`, "POST", { productId: pA.id, kind: "received", quantity: 1 })).body.code, "RESELLER_INACTIVE");
+  assert.equal((await R(`/${A.id}/stock`, "POST", { productId: pA.id, kind: "returned", quantity: 1 })).status, 201, "an inactive reseller can still take dolls back");
+  let resave = await api("PUT", `/admin/products/${pA.id}`, { name: pA.name, resellerId: A.id }, adminToken);
+  assert.equal(resave.status, 200, "re-saving a product of a deactivated reseller (reseller unchanged) still works");
+  assert.equal(resave.body.resellerId, A.id);
+  assert.equal((await api("PUT", `/admin/products/${pA.id}`, { resellerId: B.id }, adminToken)).status, 200, "moving it to an active reseller is fine");
+  assert.equal((await api("PUT", `/admin/products/${pA.id}`, { resellerId: A.id }, adminToken)).body.code, "RESELLER_INACTIVE", "moving it back to the inactive one is not");
+  await q("update products set vendor_id=$1 where id=$2", [A.id, pA.id]);
+  assert.equal((await R("?status=inactive")).body.items.some((r2: any) => r2.id === A.id), true);
+  const C = (await R("", "POST", { name: "Never Used" })).body;
+  assert.equal((await R(`/${C.id}`, "DELETE")).status, 200);
+  assert.equal((await R(`/${C.id}`)).status, 404);
+  ok("resellers with history can only be deactivated (no new stock or products, returns still allowed); unused ones can be deleted");
+}
+
+// =====================================================================================
+section("Pagination and filters on admin lists");
+{
+  const all = (await api("GET", "/admin/orders?pageSize=100", undefined, adminToken)).body;
+  assert.ok(all.total >= 4);
+  const p1 = (await api("GET", "/admin/orders?pageSize=2&page=1", undefined, adminToken)).body;
+  const p2 = (await api("GET", "/admin/orders?pageSize=2&page=2", undefined, adminToken)).body;
+  assert.equal(p1.items.length, 2); assert.equal(p1.total, all.total); assert.equal(p1.totalPages, Math.ceil(all.total / 2));
+  assert.deepEqual([...p1.items, ...p2.items].map((o: any) => o.id), all.items.slice(0, 4).map((o: any) => o.id), "pages don't overlap or skip");
+  // Junk paging falls back to safe defaults instead of erroring; a bad filter value still 400s.
+  for (const [junk, expect] of [["page=0", 1], ["page=abc", 1], ["pageSize=0", 25], ["pageSize=1000", 100]] as const) {
+    assert.equal((await api("GET", `/admin/orders?${junk}`, undefined, adminToken)).body[junk.startsWith("page=") ? "page" : "pageSize"], expect, junk);
+  }
+  assert.equal((await api("GET", "/admin/orders?from=yesterday", undefined, adminToken)).status, 400);
+  const paidOnly = (await api("GET", "/admin/orders?paymentStatus=paid&pageSize=100", undefined, adminToken)).body;
+  assert.ok(paidOnly.items.length >= 1 && paidOnly.items.every((o: any) => o.paymentStatus === "paid"));
+  const one = all.items[0];
+  assert.ok((await api("GET", `/admin/orders?q=${one.id}`, undefined, adminToken)).body.items.some((o: any) => o.id === one.id));
+  assert.equal((await api("GET", `/admin/orders?from=2000-01-01&to=2999-12-31`, undefined, adminToken)).body.total, all.total);
+  assert.equal((await api("GET", `/admin/orders?from=2999-01-01`, undefined, adminToken)).body.total, 0);
+  const w = (await api("GET", "/admin/wallets?pageSize=1", undefined, adminToken)).body;
+  assert.equal(w.items.length, 1); assert.ok(w.totals.wallets >= w.total && typeof w.totals.balance === "number");
+  const u = (await api("GET", "/admin/users?q=ResellerBuyer", undefined, adminToken)).body;
+  assert.equal(u.total, 1); assert.equal(u.items[0].fname, "ResellerBuyer");
+  ok("orders/users/wallets/products: page + pageSize, totals, no overlap between pages, filters run on the server, bad params are 400");
+
+  // The customer catalogue and "My Orders" page the same way.
+  const shop = (await api("GET", "/products?pageSize=50")).body;
+  assert.ok(shop.total >= 3 && shop.items.every((p3: any) => p3.isListed === true && !("vendorId" in p3) && !("reservedStock" in p3)));
+  const s1 = (await api("GET", "/products?pageSize=2&page=1")).body;
+  const s2 = (await api("GET", "/products?pageSize=2&page=2")).body;
+  assert.deepEqual([...s1.items, ...s2.items].map((p3: any) => p3.id), shop.items.slice(0, 4).map((p3: any) => p3.id));
+  assert.equal((await api("GET", "/products?pageSize=1000")).body.pageSize, 100, "page size is capped, not rejected");
+  assert.equal((await api("GET", "/products?search=%25%25%25")).body.total, 0, "% in the search box is literal, not a wildcard");
+  const mine = (await api("GET", "/orders?pageSize=1", undefined, buyer.token)).body;
+  assert.equal(mine.items.length, 1); assert.ok(mine.total >= 1 && mine.items.every((o: any) => o.paymentStatus === "paid"));
+  assert.equal((await api("GET", "/orders/abc", undefined, buyer.token)).status, 400);
+  ok("customer catalogue and My Orders are paginated (stable order, max 50, literal search)");
 }
 
 // =====================================================================================
@@ -1412,16 +1739,16 @@ section("OTP stored hashed, countries, 60-day inactivity");
 // =====================================================================================
 section("pagination");
 {
-  for (let i = 0; i < 12; i++) assert.equal((await api("POST", "/admin/vendors", { name: `Vendor ${String(i).padStart(2, "0")}` }, adminToken)).status, 201);
-  let pg = await api("GET", "/admin/vendors?pageSize=5&page=2", undefined, adminToken);
+  for (let i = 0; i < 12; i++) assert.equal((await api("POST", "/admin/resellers", { name: `Vendor ${String(i).padStart(2, "0")}` }, adminToken)).status, 201);
+  let pg = await api("GET", "/admin/resellers?pageSize=5&page=2", undefined, adminToken);
   assert.equal(pg.status, 200); assert.equal(pg.body.items.length, 5); assert.equal(pg.body.page, 2);
   assert.ok(pg.body.total >= 12); assert.equal(pg.body.totalPages, Math.ceil(pg.body.total / 5));
-  const p1 = await api("GET", "/admin/vendors?pageSize=5&page=1", undefined, adminToken);
+  const p1 = await api("GET", "/admin/resellers?pageSize=5&page=1", undefined, adminToken);
   assert.ok(!p1.body.items.some((v: any) => pg.body.items.some((w: any) => w.id === v.id)), "pages do not overlap");
-  assert.equal((await api("GET", "/admin/vendors?pageSize=100000", undefined, adminToken)).body.pageSize, 100, "page size is capped");
-  assert.equal((await api("GET", "/admin/vendors?page=abc&pageSize=-4", undefined, adminToken)).body.page, 1, "junk falls back to defaults");
-  assert.equal((await api("GET", "/admin/vendors?q=Vendor%2007", undefined, adminToken)).body.total, 1, "search narrows the list");
-  assert.equal((await api("GET", "/admin/vendors?q=%25", undefined, adminToken)).body.total, 0, "% is searched literally");
+  assert.equal((await api("GET", "/admin/resellers?pageSize=100000", undefined, adminToken)).body.pageSize, 100, "page size is capped");
+  assert.equal((await api("GET", "/admin/resellers?page=abc&pageSize=-4", undefined, adminToken)).body.page, 1, "junk falls back to defaults");
+  assert.equal((await api("GET", "/admin/resellers?q=Vendor%2007", undefined, adminToken)).body.total, 1, "search narrows the list");
+  assert.equal((await api("GET", "/admin/resellers?q=%25", undefined, adminToken)).body.total, 0, "% is searched literally");
   assert.equal((await api("GET", "/admin/orders?pageSize=3", undefined, adminToken)).body.items.length <= 3, true);
   assert.equal((await api("GET", "/admin/wallets?pageSize=2", undefined, adminToken)).body.items.length <= 2, true);
   assert.equal((await api("GET", "/admin/orders?status=bogus", undefined, adminToken)).status, 400);
@@ -1430,9 +1757,9 @@ section("pagination");
   const pgc = await signup(phoneN(), "Pager");
   for (let i = 0; i < 5; i++) await makeProduct(`Pager Doll ${i}`, "10.00", 3);
   const prodsA = await api("GET", "/products?pageSize=2&page=1"); const prodsB = await api("GET", "/products?pageSize=2&page=2");
-  assert.equal(prodsA.body.length, 2); assert.equal(prodsB.body.length, 2);
-  assert.ok(prodsA.body.every((a: any) => !prodsB.body.some((b: any) => b.id === a.id)));
-  assert.ok((await api("GET", "/products?search=Pager%20Doll%203")).body.length === 1);
+  assert.equal(prodsA.body.items.length, 2); assert.equal(prodsB.body.items.length, 2);
+  assert.ok(prodsA.body.items.every((a: any) => !prodsB.body.items.some((b: any) => b.id === a.id)));
+  assert.ok((await api("GET", "/products?search=Pager%20Doll%203")).body.items.length === 1);
   for (let i = 0; i < 7; i++) await q("insert into transactions (user_id, type, amount, description) values ($1,'credit','1','t')", [pgc.id]);
   const w1 = await api("GET", "/wallet?pageSize=3", undefined, pgc.token);
   assert.equal(w1.body.transactions.length, 3); assert.equal(w1.body.hasMore, true);
@@ -1455,16 +1782,16 @@ section("validation on admin routes");
   await bad("/admin/products", { name: "N", price: 10, category: "X", tags: Array.from({ length: 20 }, (_, i) => "t" + i) });
   await bad("/admin/products", { name: "x".repeat(200), price: 10, category: "X" });
   await bad("/admin/products", { name: "N", price: 10, category: "X", isFeatured: "yes" });
-  await bad("/admin/vendors", { name: "V", email: "not-an-email" });
-  await bad("/admin/vendors", { name: "V", phone: "abc" });
-  await bad("/admin/vendors", {});
+  await bad("/admin/resellers", { name: "V", email: "not-an-email" });
+  await bad("/admin/resellers", { name: "V", phone: "abc" });
+  await bad("/admin/resellers", {});
   await bad("/admin/products/abc", {}, "PUT");
   await bad("/admin/orders/1/status", { status: "teleported" }, "PUT");
   await bad("/admin/orders/1/status", { status: "confirmed", paymentStatus: "paid" }, "PUT");
   const okP = await api("POST", "/admin/products", { name: " Trimmed ", price: "12.50", category: "Modern", tags: "a, b ,,c", stock: "4", imageUrl: "" }, adminToken);
   assert.equal(okP.status, 201, JSON.stringify(okP.body));
   assert.equal(okP.body.name, "Trimmed"); assert.deepEqual(okP.body.tags, ["a", "b", "c"]); assert.equal(okP.body.stock, 4); assert.equal(okP.body.imageUrl, null);
-  const malformed = await rawRequest("POST", "/admin/vendors", { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` }, "{not json");
+  const malformed = await rawRequest("POST", "/admin/resellers", { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` }, "{not json");
   assert.equal(malformed.status, 400);
   assert.equal((await api("PUT", `/admin/products/${okP.body.id}`, { rating: 9 }, adminToken)).status, 400);
   assert.equal((await api("POST", "/cart", { productId: 1.5, quantity: 1 }, (await signup(phoneN())).token)).status, 400);
@@ -1593,5 +1920,6 @@ section("H4 migrations");
 
 console.log("\nALL END-TO-END CHECKS PASSED");
 server.close();
+chitService.close();
 await pool.end();
 process.exit(0);

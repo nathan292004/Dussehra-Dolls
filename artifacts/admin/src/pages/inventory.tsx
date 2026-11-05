@@ -20,6 +20,7 @@ type Product = {
   imageUrl?: string | null;
   category: string;
   price: number;
+  resellerName?: string | null;
   updatedAt?: string;
   createdAt?: string;
 };
@@ -83,7 +84,8 @@ export function Inventory() {
         <Info className="w-4 h-4 mt-0.5 shrink-0 text-forest" />
         <p>
           Products listed here are live in the mobile app. Use <strong>"Adjust"</strong> to update stock or warehouse location.
-          Changes reflect immediately — no restart needed.
+          Changes reflect immediately — no restart needed. For a reseller's doll, record stock on the <strong>Resellers</strong> page
+          instead, so their numbers stay right.
         </p>
       </div>
 
@@ -133,7 +135,7 @@ export function Inventory() {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-ink text-[13px]">{p.name}</p>
-                      <p className="text-xs text-warm-muted">{p.category}</p>
+                      <p className="text-xs text-warm-muted">{p.category}{p.resellerName ? ` · ${p.resellerName}` : ""}</p>
                     </td>
                     <td className="px-4 py-3">
                       {p.serialNumber ? (

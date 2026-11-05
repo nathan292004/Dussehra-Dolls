@@ -1,6 +1,7 @@
 import { db } from "@workspace/db";
 import { notificationLogTable } from "@workspace/db/schema";
 import { trySendWhatsApp } from "./twilio";
+import { logger } from "./logger";
 
 // Everything the system sends goes through here so it is recorded: who, what kind, when, and
 // whether the provider accepted it. The admin "Reminders & Tracking" dashboard reads this log.
@@ -18,6 +19,8 @@ export type NotificationKind =
   | "chit_reminder_day10"
   | "otp_register"
   | "otp_reset"
+  | "otp_delete"
+  | "chit_cancelled"
   | "test";
 
 export interface NotifyMeta {
@@ -47,7 +50,7 @@ export async function recordNotification(
     });
   } catch (err) {
     // Logging must never break the thing being logged.
-    console.error("[Notify] could not record notification:", err);
+    logger.error("[Notify] could not record notification", { err: err });
   }
 }
 

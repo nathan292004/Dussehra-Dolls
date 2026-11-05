@@ -23,6 +23,14 @@ type Mode = "login" | "register" | "forgot";
 type ForgotStep = "phone" | "reset";
 type RegisterStep = "details" | "otp";
 
+// router.back() silently does nothing when this screen has no previous entry to return to
+// (e.g. it was loaded directly, or reached after a page refresh) — which left the screen looking
+// "stuck" even though the login/registration had already succeeded. Always land somewhere.
+function leaveAuthScreen() {
+  if (router.canGoBack()) router.back();
+  else router.replace("/(tabs)/profile");
+}
+
 export default function AuthScreen() {
   const insets = useSafeAreaInsets();
   const { login, register, sendOtp, resetPassword } = useAuth();
@@ -133,7 +141,7 @@ export default function AuthScreen() {
     try {
       await register(fname.trim(), lname.trim(), fullPhone, password, otpCode);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
+      leaveAuthScreen();
     } catch (err: any) {
       setError(err.message || "Verification failed");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -151,7 +159,7 @@ export default function AuthScreen() {
     try {
       await login(fullPhone, password);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
+      leaveAuthScreen();
     } catch (err: any) {
       setError(err.message || "Login failed");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -188,7 +196,7 @@ export default function AuthScreen() {
     try {
       await resetPassword(fullPhone, otpCode, password);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
+      leaveAuthScreen();
     } catch (err: any) {
       setError(err.message || "Could not reset password");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -318,7 +326,7 @@ export default function AuthScreen() {
         contentContainerStyle={[styles.content, { paddingTop: topPad + 20, paddingBottom: insets.bottom + 40 }]}
         keyboardShouldPersistTaps="handled"
       >
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
+        <Pressable style={styles.backBtn} onPress={leaveAuthScreen}>
           <Ionicons name="arrow-back" size={24} color={Colors.light.text} />
         </Pressable>
 

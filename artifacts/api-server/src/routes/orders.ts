@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { ordersTable } from "@workspace/db/schema";
-import { and, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 import { authMiddleware } from "../middlewares/auth";
 import { fromPaise, toPaise } from "../lib/money";
-import { readPage } from "../lib/pagination";
+import { pageOf, readPage } from "../lib/pagination";
 import { HttpError } from "../lib/http-error";
 import { parse, idParam } from "../lib/validate";
 
@@ -28,14 +28,14 @@ function formatOrder(o: typeof ordersTable.$inferSelect) {
 // not shown as purchases.
 router.get("/", async (req, res) => {
   const p = readPage(req, 20);
-  const orders = await db
-    .select()
-    .from(ordersTable)
-    .where(and(eq(ordersTable.userId, req.userId!), eq(ordersTable.paymentStatus, "paid")))
-    .orderBy(desc(ordersTable.createdAt), desc(ordersTable.id))
-    .limit(p.pageSize)
-    .offset(p.offset);
-  res.json(orders.map(formatOrder));
+  const where = and(eq(ordersTable.userId, req.userId!), eq(ordersTable.paymentStatus, "paid"));
+  const [orders, [{ total }]] = await Promise.all([
+    db.select().from(ordersTable).where(where)
+      .orderBy(desc(ordersTable.createdAt), desc(ordersTable.id))
+      .limit(p.pageSize).offset(p.offset),
+    db.select({ total: count() }).from(ordersTable).where(where),
+  ]);
+  res.json(pageOf(orders.map(formatOrder), Number(total), p));
 });
 
 router.get("/:id", async (req, res) => {

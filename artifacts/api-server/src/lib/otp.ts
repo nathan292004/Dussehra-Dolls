@@ -10,7 +10,12 @@ export const OTP_MAX_WRONG_ATTEMPTS = 5;
 export const OTP_RESEND_SECONDS = 60;
 export const OTP_MAX_SENDS_PER_HOUR = 5;
 
-export type OtpPurpose = "register" | "reset";
+// "delete" = proving phone ownership on the public account-deletion web page (Google Play requirement).
+export type OtpPurpose = "register" | "reset" | "delete";
+
+export function otpPurposeFrom(value: unknown): OtpPurpose {
+  return value === "reset" || value === "delete" ? value : "register";
+}
 
 export function generateOtp(): string {
   return crypto.randomInt(100000, 1000000).toString();

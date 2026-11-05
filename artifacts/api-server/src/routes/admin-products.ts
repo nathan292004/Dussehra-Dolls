@@ -3,9 +3,9 @@ import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
-import { and, count, desc, eq, ilike, lte, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, ilike, isNull, lte, or, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { productsTable } from "@workspace/db/schema";
+import { productsTable, resellerStockEntriesTable, vendorsTable } from "@workspace/db/schema";
 import { HttpError } from "../lib/http-error";
 import { likePattern, pageOf, readPage, readSearch } from "../lib/pagination";
 import { z, parse, idParam, text, optionalText, rupees } from "../lib/validate";
@@ -31,13 +31,27 @@ const upload = multer({
 });
 
 // Admin sees the real numbers: stock on the shelf, units held by unpaid checkouts, and what can still be sold.
-export const formatProduct = (p: typeof productsTable.$inferSelect) => ({
+export const formatProduct = (p: typeof productsTable.$inferSelect, resellerName?: string | null) => ({
   ...p,
   availableStock: Math.max(p.stock - p.reservedStock, 0),
   price: toRupees(p.price),
   originalPrice: p.originalPrice ? toRupees(p.originalPrice) : null,
   rating: p.rating ? parseFloat(p.rating) : 0,
+  resellerId: p.vendorId,
+  ...(resellerName !== undefined ? { resellerName } : {}),
 });
+
+/** A product may be linked to an active reseller, or to nobody (our own stock). */
+async function resellerIdFrom(value: unknown): Promise<number | null | undefined> {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const id = typeof value === "number" ? value : /^\d+$/.test(String(value)) ? Number(value) : NaN;
+  if (!Number.isSafeInteger(id) || id <= 0) throw new HttpError(400, "Invalid reseller", "BAD_RESELLER");
+  const [reseller] = await db.select({ isActive: vendorsTable.isActive }).from(vendorsTable).where(eq(vendorsTable.id, id)).limit(1);
+  if (!reseller) throw new HttpError(400, "That reseller doesn\'t exist", "BAD_RESELLER");
+  if (!reseller.isActive) throw new HttpError(409, "That reseller is deactivated. Reactivate them first.", "RESELLER_INACTIVE");
+  return id;
+}
 
 // ─── Rules for what an admin may send ────────────────────────────────────────
 const tagsField = z
@@ -107,6 +121,7 @@ const listQuery = z.object({
   category: z.string().trim().max(60).optional(),
   listed: z.enum(["true", "false"]).optional(),
   lowStock: z.enum(["true"]).optional(),
+  reseller: z.string().trim().max(20).optional(),
 });
 
 // ─── Image upload ────────────────────────────────────────────────────────────
@@ -133,18 +148,36 @@ router.get("/", async (req, res) => {
   if (f.category) conditions.push(eq(productsTable.category, f.category));
   if (f.listed) conditions.push(eq(productsTable.isListed, f.listed === "true"));
   if (f.lowStock) conditions.push(sql`${productsTable.stock} - ${productsTable.reservedStock} < 5`);
+  if (f.reseller === "none") conditions.push(isNull(productsTable.vendorId));
+  else if (f.reseller) conditions.push(eq(productsTable.vendorId, parse(idParam, f.reseller)));
   const where = conditions.length ? and(...conditions) : undefined;
 
-  const [{ total }] = await db.select({ total: count() }).from(productsTable).where(where);
-  const rows = await db.select().from(productsTable).where(where)
-    .orderBy(desc(productsTable.createdAt), desc(productsTable.id)).limit(p.pageSize).offset(p.offset);
-  res.json(pageOf(rows.map(formatProduct), Number(total), p));
+  const [[{ total }], rows] = await Promise.all([
+    db.select({ total: count() }).from(productsTable).where(where),
+    db.select({ product: productsTable, resellerName: vendorsTable.name })
+      .from(productsTable)
+      .leftJoin(vendorsTable, eq(productsTable.vendorId, vendorsTable.id))
+      .where(where)
+      .orderBy(desc(productsTable.createdAt), desc(productsTable.id))
+      .limit(p.pageSize).offset(p.offset),
+  ]);
+  res.json(pageOf(rows.map((r) => formatProduct(r.product, r.resellerName)), Number(total), p));
 });
 
 // ─── Create / update / delete ────────────────────────────────────────────────
+// Starting stock for a reseller's doll is logged as "received" from them, in the same transaction.
 router.post("/", async (req, res) => {
   const d = parse(createSchema, req.body);
-  const [product] = await db.insert(productsTable).values(d).returning();
+  const vendorId = await resellerIdFrom(req.body?.resellerId);
+  const product = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(productsTable).values({ ...d, vendorId: vendorId ?? null }).returning();
+    if (vendorId && created.stock > 0) {
+      await tx.insert(resellerStockEntriesTable).values({
+        vendorId, productId: created.id, productName: created.name, kind: "received", quantity: created.stock, createdBy: req.adminId ?? null,
+      });
+    }
+    return created;
+  });
   res.status(201).json(formatProduct(product));
 });
 
@@ -156,6 +189,13 @@ router.put("/:id", async (req, res) => {
     if (value !== undefined) (updateData as Record<string, unknown>)[key] = value;
   }
   if (rating !== undefined) updateData.rating = rating.toFixed(2);
+  if (req.body?.resellerId !== undefined) {
+    // Re-saving a product whose reseller was since deactivated must still work, so only a change is checked.
+    const [current] = await db.select({ vendorId: productsTable.vendorId }).from(productsTable).where(eq(productsTable.id, id)).limit(1);
+    if (!current) throw new HttpError(404, "Product not found");
+    const unchanged = String(req.body.resellerId ?? "") === String(current.vendorId ?? "");
+    if (!unchanged) updateData.vendorId = await resellerIdFrom(req.body.resellerId);
+  }
 
   // Stock may not be set below the units customers are currently holding in unpaid checkouts.
   const guard = d.stock !== undefined

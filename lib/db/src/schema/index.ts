@@ -6,6 +6,7 @@ export * from "./wallet";
 export * from "./cart";
 export * from "./otp";
 export * from "./vendors";
+export * from "./reseller-stock";
 export * from "./admin-users";
 export * from "./notifications";
 export * from "./integrations";

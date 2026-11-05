@@ -14,6 +14,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { getCycleStatus, istParts } from "../lib/chit-rules";
 import { loadTrackedChitPlans } from "../lib/chit-tracking";
 import { fromPaise, toPaise, toRupees } from "../lib/money";
+import { logger } from "../lib/logger";
 
 // Mounted at /api/admin/ops (admin login required, see routes/index.ts).
 // One call that feeds the "Reminders & Tracking" dashboard in the admin site.
@@ -242,7 +243,7 @@ router.get("/", async (_req, res) => {
       wallets: { spendable: toRupees(walletTotals?.balance ?? "0"), lockedInChits: toRupees(walletTotals?.locked ?? "0") },
     });
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
     return res.status(500).json({ error: "Internal server error" });
   }
 });

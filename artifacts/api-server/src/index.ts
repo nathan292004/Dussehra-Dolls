@@ -5,6 +5,7 @@ import { startChitReminderScheduler } from "./lib/chit-reminder-scheduler";
 import { assertAuthConfigured } from "./lib/jwt";
 import { startCheckoutSweeper } from "./lib/order-payments";
 import { razorpay } from "./lib/razorpay";
+import { logger } from "./lib/logger";
 
 assertAuthConfigured();
 
@@ -26,16 +27,14 @@ async function waitForDatabase(retries = 5, delayMs = 2000): Promise<void> {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       await pool.query("SELECT 1");
-      console.log(`[DB] Connected successfully (attempt ${attempt})`);
+      logger.info(`[DB] Connected successfully (attempt ${attempt})`);
       return;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `[DB] Connection attempt ${attempt}/${retries} failed: ${message}`
-      );
+      logger.warn(`[DB] Connection attempt ${attempt}/${retries} failed`, { reason: message });
       if (attempt < retries) {
         const backoff = delayMs * Math.pow(2, attempt - 1);
-        console.log(`[DB] Retrying in ${backoff}ms…`);
+        logger.info(`[DB] Retrying in ${backoff}ms…`);
         await new Promise((r) => setTimeout(r, backoff));
       }
     }
@@ -47,7 +46,7 @@ async function start() {
   await waitForDatabase();
 
   const server = app.listen(port, () => {
-    console.log(`Server listening on port ${port}`);
+    logger.info(`Server listening on port ${port}`);
     // Background jobs (reminders, releasing abandoned checkouts, WhatsApp delivery) run here by
     // default. In production run them in the separate worker instead (`start:worker`) and set
     // RUN_BACKGROUND_JOBS=false on the web servers, so scaling the web servers up never means
@@ -61,23 +60,23 @@ async function start() {
 
   // ─── Graceful shutdown ──────────────────────────────
   const shutdown = async (signal: string) => {
-    console.log(`\n[Shutdown] ${signal} received, shutting down gracefully…`);
+    logger.info(`[Shutdown] ${signal} received, shutting down gracefully…`);
 
     server.close(async () => {
-      console.log("[Shutdown] HTTP server closed.");
+      logger.info("[Shutdown] HTTP server closed.");
 
       try {
         await pool.end();
-        console.log("[Shutdown] DB pool drained.");
+        logger.info("[Shutdown] DB pool drained.");
       } catch (err) {
-        console.error("[Shutdown] Error draining DB pool:", err);
+        logger.error("[Shutdown] Error draining DB pool", { err: err });
       }
 
       process.exit(0);
     });
 
     setTimeout(() => {
-      console.error("[Shutdown] Forced exit after 30s timeout.");
+      logger.error("[Shutdown] Forced exit after 30s timeout.");
       process.exit(1);
     }, 30_000);
   };
@@ -86,7 +85,16 @@ async function start() {
   process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
+// A promise nobody awaited, or an exception nothing caught, must leave a trace instead of vanishing.
+process.on("unhandledRejection", (reason) => {
+  logger.error("unhandled promise rejection", { err: reason });
+});
+process.on("uncaughtException", (err) => {
+  logger.error("uncaught exception, exiting", { err });
+  process.exit(1);
+});
+
 start().catch((err) => {
-  console.error("[Fatal]", err);
+  logger.error("[Fatal]", { err: err });
   process.exit(1);
 });

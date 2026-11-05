@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,6 +17,8 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "#E74C3C",
 };
 
+const PAGE_SIZE = 20;
+
 interface Order {
   id: number;
   status: string;
@@ -29,35 +31,38 @@ export default function OrdersScreen() {
   const insets = useSafeAreaInsets();
   const { token, user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [loadingMore, setLoadingMore] = useState(false);
-  const pageRef = useRef(1);
-  const hasMoreRef = useRef(true);
-  const busyRef = useRef(false);
-
   // Orders come 20 at a time, newest first; scrolling down loads older ones.
-  const loadOrders = useCallback(async (append = false) => {
+  const loadPage = useCallback(async (pageToLoad: number) => {
     if (!token) { setIsLoading(false); return; }
-    if (busyRef.current || (append && !hasMoreRef.current)) return;
-    busyRef.current = true;
-    const page = append ? pageRef.current + 1 : 1;
-    if (append) setLoadingMore(true);
     try {
-      const res = await fetch(`${getApiBase()}/orders?page=${page}&pageSize=20`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) {
-        const rows: Order[] = await res.json();
-        pageRef.current = page;
-        hasMoreRef.current = rows.length === 20;
-        setOrders((prev) => append ? [...prev, ...rows.filter((o) => !prev.some((p) => p.id === o.id))] : rows);
-      }
-    } catch { /* ignore */ } finally { busyRef.current = false; setIsLoading(false); setLoadingMore(false); }
+      const res = await fetch(`${getApiBase()}/orders?page=${pageToLoad}&pageSize=${PAGE_SIZE}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return;
+      const body: { items: Order[]; page: number; totalPages: number } = await res.json();
+      setOrders(prev => {
+        if (pageToLoad === 1) return body.items;
+        const seen = new Set(prev.map(o => o.id));
+        return [...prev, ...body.items.filter(o => !seen.has(o.id))];
+      });
+      setPage(body.page);
+      setTotalPages(body.totalPages);
+    } catch { /* ignore */ } finally { setIsLoading(false); setLoadingMore(false); }
   }, [token]);
 
-  useEffect(() => { void loadOrders(); }, [loadOrders]);
-  const refreshControl = useRefreshControl(() => loadOrders());
+  useEffect(() => { void loadPage(1); }, [loadPage]);
+  const refreshControl = useRefreshControl(() => loadPage(1));
+
+  const loadMore = () => {
+    if (loadingMore || isLoading || page >= totalPages) return;
+    setLoadingMore(true);
+    void loadPage(page + 1);
+  };
 
   if (isLoading) return <View style={[styles.loader, { paddingTop: topPad }]}><ActivityIndicator size="large" color={Colors.light.tint} /></View>;
 
@@ -72,12 +77,12 @@ export default function OrdersScreen() {
       </View>
       <FlatList
         refreshControl={refreshControl}
-        onEndReached={() => void loadOrders(true)}
-        onEndReachedThreshold={0.4}
-        ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 16 }} color={Colors.light.tint} /> : null}
         data={orders}
         keyExtractor={item => item.id.toString()}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: bottomPad + 20, gap: 12 }}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={loadingMore ? <ActivityIndicator style={{ paddingVertical: 16 }} color={Colors.light.tint} /> : null}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Ionicons name="bag-outline" size={64} color={Colors.light.border} />

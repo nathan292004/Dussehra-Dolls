@@ -31,6 +31,7 @@ import {
   sweepExpiredCheckouts,
 } from "../lib/order-payments";
 import { fromPaise, paiseToDecimal, parsePaise, sumPaise, toPaise } from "../lib/money";
+import { logger } from "../lib/logger";
 
 const router = Router();
 router.use(authMiddleware);
@@ -252,7 +253,7 @@ router.post("/create-order", async (req, res) => {
     if (err instanceof OrderPaymentError) {
       return res.status(err.status).json({ error: err.message, code: err.code, items: err.shortages });
     }
-    console.error("Create order error:", err);
+    logger.error("Create order error", { err: err });
     return res.status(500).json({ error: "Failed to create payment order" });
   }
 });
@@ -307,7 +308,7 @@ router.post("/verify-order", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("Razorpay verify error:", err);
+    logger.error("Razorpay verify error", { err: err });
     return res.status(500).json({ error: "Payment verification failed" });
   }
 });
@@ -340,7 +341,7 @@ router.post("/cancel-order", async (req, res) => {
     await releasePendingOrder(order.id, req.userId!);
     return res.json({ success: true });
   } catch (err) {
-    console.error("Cancel order error:", err);
+    logger.error("Cancel order error", { err: err });
     return res.status(500).json({ error: "Could not cancel the order" });
   }
 });
@@ -396,7 +397,7 @@ router.post("/create-chit-payment", async (req, res) => {
       planName: plan.name,
     });
   } catch (err) {
-    console.error("Razorpay chit order error:", err);
+    logger.error("Razorpay chit order error", { err: err });
     return res.status(500).json({ error: "Failed to create chit payment order" });
   }
 });
@@ -436,7 +437,7 @@ router.post("/verify-chit-payment", async (req, res) => {
     if (err instanceof ChitPaymentError) {
       return res.status(err.status).json({ error: err.message });
     }
-    console.error("Razorpay chit verify error:", err);
+    logger.error("Razorpay chit verify error", { err: err });
     return res.status(500).json({ error: "Payment verification failed" });
   }
 });
@@ -465,7 +466,7 @@ router.post("/create-wallet-payment", async (req, res) => {
       keyId: process.env.RAZORPAY_KEY_ID,
     });
   } catch (err) {
-    console.error("Razorpay wallet order error:", err);
+    logger.error("Razorpay wallet order error", { err: err });
     return res.status(500).json({ error: "Failed to create wallet payment order" });
   }
 });
@@ -496,7 +497,7 @@ router.post("/verify-wallet-payment", async (req, res) => {
     });
     return res.json({ success: true, balance: newBalance });
   } catch (err) {
-    console.error("Razorpay wallet verify error:", err);
+    logger.error("Razorpay wallet verify error", { err: err });
     return res.status(500).json({ error: "Wallet payment verification failed" });
   }
 });

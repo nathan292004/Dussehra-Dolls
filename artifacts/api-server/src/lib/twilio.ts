@@ -1,3 +1,10 @@
+import { logger } from "./logger";
+
+/** Phone numbers are personal data: logs keep only the last 4 digits. */
+function maskPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  return digits.length > 4 ? `***${digits.slice(-4)}` : "***";
+}
 export class SmsDeliveryError extends Error {
   constructor(public readonly code: string, message: string) {
     super(message);
@@ -38,7 +45,7 @@ async function callTwilioParams(params: Record<string, string>) {
   if (!res.ok) {
     const code = String(result.code || res.status);
     // Provider messages can contain phone numbers; log only the error code.
-    console.error("[Twilio] API error code:", code);
+    logger.error("[Twilio] API error", { providerCode: code });
     const messages: Record<string, string> = {
       "21606": "SMS sender is not an SMS-capable number belonging to this Twilio account. Configure a Twilio sender, not the customer's phone number.",
       "21608": "Twilio cannot send to this recipient until trial/compliance restrictions are resolved. Verify the test recipient or complete the production account setup.",
@@ -76,9 +83,9 @@ export async function sendSms(to: string, body: string) {
     }
   }
 
-  console.log("[Twilio] Sending verification SMS");
+  logger.info("[Twilio] Sending verification SMS");
   const result = await callTwilio(to, from, body);
-  console.log("[Twilio] SMS sent, SID:", result.sid);
+  logger.info("[Twilio] SMS sent", { sid: result.sid });
   return result;
 }
 
@@ -95,17 +102,17 @@ export async function trySendWhatsApp(to: string, body: string): Promise<WhatsAp
   const toWa = "whatsapp:" + actualTo.replace(/^whatsapp:/, "");
 
   if (testOverride) {
-    console.log(`[Twilio] WhatsApp TEST MODE: redirecting ${to} to ${toWa}`);
+    logger.info("[Twilio] WhatsApp TEST MODE: redirecting to the test number", { to: maskPhone(to) });
   } else {
-    console.log(`[Twilio] Sending WhatsApp to ${toWa}`);
+    logger.info("[Twilio] Sending WhatsApp", { to: maskPhone(toWa) });
   }
 
   try {
     const result = await callTwilio(toWa, from, body);
-    console.log("[Twilio] WhatsApp sent, SID:", result.sid);
+    logger.info("[Twilio] WhatsApp sent", { sid: result.sid });
     return { ok: true, sid: typeof result.sid === "string" ? result.sid : undefined };
   } catch (err) {
-    console.error("[Twilio] WhatsApp send failed (non-fatal):", err);
+    logger.error("[Twilio] WhatsApp send failed (non-fatal)", { err: err });
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }

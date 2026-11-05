@@ -16,7 +16,9 @@ import {
 import { describeChitPlan } from "../lib/chit-view";
 import { paiseToDecimal } from "../lib/money";
 import { uniqueViolationConstraint } from "../lib/lockout";
-import { notifyChitPlanSubmitted } from "../lib/whatsapp-notifications";
+import { notifyChitCancelled, notifyChitPlanSubmitted } from "../lib/whatsapp-notifications";
+import { logger } from "../lib/logger";
+import { cancelChitPlanViaService } from "../lib/chit-service-client";
 
 const router = Router();
 
@@ -43,7 +45,7 @@ router.get("/my", authMiddleware, async (req, res) => {
       .orderBy(desc(chitPlansTable.createdAt), desc(chitPlansTable.id));
     return res.json(plans.map((p) => describeChitPlan(p)));
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -96,14 +98,39 @@ router.post("/enroll-custom", authMiddleware, async (req, res) => {
         userId: user.userId,
         chitPlanId: plan.id,
         planName: plan.name,
-      }).catch((e) => console.error("[WhatsApp] Chit submitted notify failed:", e));
+      }).catch((e) => logger.error("[WhatsApp] Chit submitted notify failed", { err: e }));
     }
 
     return res.status(201).json(describeChitPlan(plan));
   } catch (err) {
-    console.error(err);
+    logger.error("unexpected error", { err: err });
     return res.status(500).json({ error: "Internal server error" });
   }
+});
+
+// Cancel one of the customer's own plans at any time before it completes. The work is done by the
+// separate chit-service; whatever was paid in moves from locked to spendable wallet balance.
+router.post("/:id/cancel", authMiddleware as any, async (req: AuthRequest, res) => {
+  const chitPlanId = /^\d+$/.test(String(req.params.id)) ? Number(req.params.id) : NaN;
+  if (!Number.isSafeInteger(chitPlanId) || chitPlanId <= 0) {
+    return res.status(404).json({ error: "Chit plan not found.", code: "PLAN_NOT_FOUND" });
+  }
+  const reply = await cancelChitPlanViaService({ chitPlanId, userId: req.userId!, reason: req.body?.reason });
+
+  if (reply.status === 200 && reply.body.alreadyCancelled === false) {
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.userId, req.userId!)).limit(1);
+    if (user?.phone) {
+      notifyChitCancelled({
+        phone: user.phone,
+        name: [user.fname, user.lname].filter(Boolean).join(" ") || "Customer",
+        userId: user.userId,
+        chitPlanId,
+        planName: String(reply.body.planName),
+        released: Number(reply.body.releasedAmount) || 0,
+      }).catch((e) => logger.error("[WhatsApp] Chit cancelled notify failed", { err: e }));
+    }
+  }
+  return res.status(reply.status).json({ ...reply.body, traceId: req.traceId });
 });
 
 export default router;

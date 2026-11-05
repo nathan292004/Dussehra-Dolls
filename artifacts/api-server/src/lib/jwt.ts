@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
+import { logger } from "./logger";
 
 // Two kinds of signed tokens, each with its own secret and audience, so a customer token
 // can never be used as an admin token (or the other way round).
@@ -35,7 +36,7 @@ function secretFor(kind: TokenKind): string {
   } else if (process.env.NODE_ENV === "production") {
     throw new Error(`${env} (at least 32 characters) is required in production`);
   } else {
-    console.warn(`[Auth] ${env} not set; using a temporary secret. Everyone is logged out when the server restarts.`);
+    logger.warn(`[Auth] ${env} not set; using a temporary secret. Everyone is logged out when the server restarts.`);
     secret = crypto.randomBytes(32).toString("hex");
   }
   cachedSecrets[kind] = secret;

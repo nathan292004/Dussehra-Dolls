@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePaged } from "@/hooks/use-paged";
 import { Pager } from "@/components/pager";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,8 @@ const productSchema = z.object({
   location: z.string().max(100, "Location must be at most 100 characters").optional().nullable(),
   isFeatured: z.boolean().optional().default(false),
   tagsString: z.string().optional(),
+  // "" = our own stock; otherwise the reseller's id (select values are strings).
+  resellerId: z.string().optional(),
 });
 
 type FormData = z.infer<typeof productSchema>;
@@ -48,9 +50,26 @@ type Product = {
   isListed: boolean;
   tags?: string[];
   rating?: number;
+  resellerId?: number | null;
+  resellerName?: string | null;
   createdAt?: string;
   updatedAt?: string;
 };
+
+type ResellerOption = { id: number; name: string; isActive: boolean };
+
+function useResellerOptions() {
+  return useQuery({
+    queryKey: ["/api/admin/resellers", "options"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/resellers?pageSize=100");
+      if (!res.ok) return [] as ResellerOption[];
+      const body = await res.json();
+      return body.items as ResellerOption[];
+    },
+    staleTime: 60_000,
+  });
+}
 
 async function failWithServerMessage(res: Response, fallback: string): Promise<never> {
   const body = await res.json().catch(() => ({}));
@@ -115,9 +134,11 @@ async function uploadImage(file: File): Promise<string> {
 
 export function Products() {
   const [listedFilter, setListedFilter] = React.useState("all");
-  const list = usePaged<Product>("/api/admin/products", { params: { listed: listedFilter }, refetchInterval: 10000 });
+  const [resellerFilter, setResellerFilter] = React.useState("all");
+  const list = usePaged<Product>("/api/admin/products", { params: { listed: listedFilter, reseller: resellerFilter }, refetchInterval: 10000 });
   const products = list.items;
   const isLoading = list.isLoading;
+  const { data: resellers = [] } = useResellerOptions();
   const [formError, setFormError] = React.useState("");
   const createMutation = useCreateProduct();
   const updateMutation = useUpdateProduct();
@@ -141,7 +162,7 @@ export function Products() {
   const openCreate = () => {
     setFormError("");
     setEditingProduct(null);
-    reset({ stock: 0, price: 0, isFeatured: false });
+    reset({ stock: 0, price: 0, isFeatured: false, resellerId: "" });
     setImageFile(null);
     setImagePreview(null);
     setIsModalOpen(true);
@@ -150,7 +171,7 @@ export function Products() {
   const openEdit = (p: Product) => {
     setFormError("");
     setEditingProduct(p);
-    reset({ ...p, tagsString: p.tags?.join(", ") || "" });
+    reset({ ...p, tagsString: p.tags?.join(", ") || "", resellerId: p.resellerId ? String(p.resellerId) : "" });
     setImageFile(null);
     setImagePreview(p.imageUrl || null);
     setIsModalOpen(true);
@@ -183,9 +204,10 @@ export function Products() {
         setIsUploading(false);
       }
 
-      const { tagsString: _unused, ...rest } = data;
+      const { tagsString: _unused, resellerId, ...rest } = data;
       const payload = {
         ...rest,
+        resellerId: resellerId ? Number(resellerId) : null,
         imageUrl,
         tags: data.tagsString ? data.tagsString.split(",").map(s => s.trim()).filter(Boolean) : [],
       };
@@ -239,6 +261,11 @@ export function Products() {
           <option value="true">Listed</option>
           <option value="false">Hidden</option>
         </select>
+        <select aria-label="Reseller" value={resellerFilter} onChange={(e) => setResellerFilter(e.target.value)} className="px-3 py-2 rounded-lg border border-warm-border bg-white text-sm outline-none">
+          <option value="all">All suppliers</option>
+          <option value="none">Our own stock</option>
+          {resellers.map(r => <option key={r.id} value={r.id}>{r.name}{r.isActive ? "" : " (inactive)"}</option>)}
+        </select>
       </div>
 
       <div className="bg-white rounded-2xl border border-warm-border overflow-hidden">
@@ -250,6 +277,7 @@ export function Products() {
                 <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Name</th>
                 <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Serial</th>
                 <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Category</th>
+                <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Supplier</th>
                 <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Price</th>
                 <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Stock</th>
                 <th className="px-4 py-3 text-left text-[11px] text-warm-secondary uppercase tracking-wider font-medium">Status</th>
@@ -258,9 +286,9 @@ export function Products() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-warm-muted">Loading...</td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-warm-muted">Loading...</td></tr>
               ) : products.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-warm-muted">No products yet. Click "Add Product" to create one.</td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-warm-muted">No products yet. Click "Add Product" to create one.</td></tr>
               ) : (
                 products.map(p => (
                   <tr key={p.id} className={`border-t border-parchment transition-colors ${p.isListed ? "hover:bg-[#F6FBF7]" : "bg-[#FBF8F6] opacity-70 hover:bg-[#F5F1EE]"}`}>
@@ -280,6 +308,7 @@ export function Products() {
                     <td className="px-4 py-3">
                       <Badge variant="outline">{p.category}</Badge>
                     </td>
+                    <td className="px-4 py-3 text-[13px] text-warm-secondary">{p.resellerName ?? "Own stock"}</td>
                     <td className="px-4 py-3 font-display text-ink text-[13px]" style={{ fontWeight: 600 }}>{formatCurrency(p.price)}</td>
                     <td className="px-4 py-3">
                       <span className={p.stock < 5 ? "text-destructive font-medium" : "text-ink"}>{p.stock}</span>
@@ -362,6 +391,16 @@ export function Products() {
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Location / Warehouse</label>
               <input {...register("location")} placeholder="e.g. Warehouse A" className="w-full px-3 py-2 rounded-lg border border-warm-border focus:ring-2 focus:ring-forest/20 outline-none text-sm" />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <label className="text-sm font-medium" htmlFor="p-reseller">Supplied by</label>
+              <select id="p-reseller" {...register("resellerId")} className="w-full px-3 py-2 rounded-lg border border-warm-border outline-none bg-white text-sm">
+                <option value="">Our own stock</option>
+                {resellers.filter(r => r.isActive || String(r.id) === String(editingProduct?.resellerId ?? "")).map(r => (
+                  <option key={r.id} value={r.id}>{r.name}{r.isActive ? "" : " (inactive)"}</option>
+                ))}
+              </select>
+              {!editingProduct && <p className="text-xs text-warm-muted">For a reseller's doll, the starting stock is recorded as received from them.</p>}
             </div>
 
             {/* ── Image Upload ── */}

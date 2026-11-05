@@ -12,8 +12,9 @@ flowchart LR
   A --> R[Razorpay payment API + signed webhook]
   A --> Q[(WhatsApp message queue in PostgreSQL)]
   Q --> T[Meta WhatsApp Cloud API approved templates]
-  M --> G[Google Maps URL]
-  W --> G
+  M --> G[Google Maps JS API + Geocoding: address picker]
+  M --> GL[Google Maps URL: order detail link]
+  W --> GL
 ```
 
 The payment logic is a **service module within the existing Express API** (`src/services/chit-payments.ts`), not a separately deployed process. That keeps one database transaction for payment confirmation, store balance credit and the message queue. It can be split into its own service later if traffic or team ownership warrants it. The WhatsApp worker runs inside the API process and reads the durable queue.
@@ -49,9 +50,25 @@ The legacy routes that allowed a client to create an order or credit balance wit
 
 The marketing message entered in admin must match the scope of the approved template. Meta may reject an overly broad variable. Do not send promotions until the business sender and marketing template are approved. If a process dies after Meta accepts a message but before its ID is saved, a retry could duplicate it; reconcile the provider log before bulk campaigns.
 
-## Google Maps delivery link
+## Google Maps
 
-The saved delivery address appears on the customer's order details and in the admin order detail with an **Open in Google Maps** action. It uses a Google Maps search URL with the encoded address. **No Google Maps API key is required** for this link. A typed address may resolve ambiguously; require a complete address and confirm the pin with the customer before shipping. If you later want autocomplete or a selected map pin saved with the order, add Places/Maps APIs, billing and a restricted key.
+Two separate integrations, one key:
+
+1. **Address picker (customer app, checkout + Profile → Addresses).** `AddressMapPicker`
+   (`artifacts/mobile/components/address-map-picker.tsx`) embeds the Maps JavaScript API in a
+   WebView (native) / iframe (web): the customer searches a place or taps the map, the app reverse-
+   geocodes the pin, and the exact address + latitude/longitude are saved with the order or address
+   book entry. This **requires** `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` in `artifacts/mobile/.env`, with
+   **Maps JavaScript API** and **Geocoding API** enabled and billing attached in Google Cloud. With
+   no key set, the picker shows a "Google Maps needs an API key" message instead of a map — it does
+   not silently fall back.
+2. **Order detail link (customer app + admin).** Once an address has a saved latitude/longitude,
+   both apps show an **Open in Google Maps** link using a plain Maps search URL — this one needs no
+   API key, since it's just a deep link the browser/app opens.
+
+In Google Cloud Console, restrict the key: for local development, restrict by API only (Maps
+JavaScript API + Geocoding API) since `localhost` origins vary by port; for production, add HTTP
+referrer restrictions for the real customer-app/admin origins once deployed.
 
 ## Keys and accounts to supply, in order
 
@@ -61,7 +78,9 @@ Keep live secrets in the deployment host's secret manager or the ignored API `.e
 2. **Application secrets:** `AUTH_TOKEN_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`. Use separate long random secrets in production. Set `CORS_ALLOWED_ORIGINS` and `API_PUBLIC_ORIGIN` for the real domains.
 3. **Meta WhatsApp Business Platform:** create or connect a Meta business portfolio, WhatsApp Business Account, app and registered sender phone. Provide `META_WHATSAPP_PHONE_NUMBER_ID`, a permanent system user `META_WHATSAPP_ACCESS_TOKEN` with WhatsApp messaging permission, the Meta app's `META_APP_SECRET`, a self-chosen `META_WHATSAPP_VERIFY_TOKEN`, `META_GRAPH_API_VERSION`, language code, and the five approved template names above. Configure the app's **messages** webhook callback to `https://api.example.com/api/whatsapp/webhook`; use the same verify token. Keep all secrets on the server. Customer registration separately uses Twilio SMS: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` or API key and secret, and an SMS-capable `TWILIO_FROM_NUMBER`.
 4. **Razorpay when account work resumes:** complete business KYC and settlement bank account in Razorpay, then supply `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and a separate `RAZORPAY_WEBHOOK_SECRET`. Configure `payment.captured` webhook to `https://api.example.com/api/payment/webhook`. Begin with test keys, perform a test payment and check one balance credit; then replace with live keys and perform one low-value live payment/refund under business supervision.
-5. **Maps:** no key for the current address link.
+5. **Maps:** `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` for the address picker (Maps JavaScript API +
+   Geocoding API enabled, billing attached, restricted to your real origins in production). The
+   order-detail deep link needs no key.
 
 ## Deploy and check, step by step
 
@@ -82,7 +101,8 @@ The local verifier is [`artifacts/api-server/scripts/verify-integrations.ts`](..
 - [Razorpay server integration and payment signature](https://razorpay.com/docs/server-integration/python/test-app/)
 - [Meta WhatsApp Cloud API documentation](https://www.postman.com/meta/whatsapp-business-platform/overview)
 - [Meta WhatsApp Platform pricing](https://whatsappbusiness.com/products/platform-pricing/)
-- [Google Maps URLs: no API key required](https://developers.google.com/maps/documentation/urls/get-started)
+- [Google Maps URLs: no API key required](https://developers.google.com/maps/documentation/urls/get-started) (the order-detail link)
+- [Maps JavaScript API](https://developers.google.com/maps/documentation/javascript/overview) and [Geocoding API](https://developers.google.com/maps/documentation/geocoding/overview) (the address picker)
 
 ## WhatsApp promotions update
 

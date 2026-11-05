@@ -107,6 +107,24 @@ export async function notifyChitPlanRejected(opts: Who & {
   });
 }
 
+// ── Chit plan cancelled by the customer ──────────────────────────────────────
+export async function notifyChitCancelled(opts: Who & { chitPlanId: number; planName: string; released: number }) {
+  const lines = [
+    `🛑 *Chit Plan Cancelled — DollDime*`,
+    ``,
+    `Hi ${opts.name}, your chit plan *${opts.planName}* has been cancelled as you asked.`,
+    ``,
+    opts.released > 0
+      ? `*${fmt(opts.released)}* you had paid is now in your DollDime wallet, ready to spend on dolls.`
+      : `Nothing had been paid on this plan, so there is no money to move.`,
+    ``,
+    `If you didn't ask for this, please contact us straight away.`,
+  ];
+  return sendWhatsAppLogged(opts.phone, lines.join("\n"), {
+    userId: opts.userId, kind: "chit_cancelled", relatedType: "chit_plan", relatedId: opts.chitPlanId,
+  });
+}
+
 // ── Chit payment confirmation ────────────────────────────────────────────────
 export async function notifyChitEmiPaid(opts: Who & {
   chitPlanId: number;
