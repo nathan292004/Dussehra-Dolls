@@ -9,7 +9,7 @@ import {
   usersTable,
 } from "@workspace/db/schema";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { fromPaise, paiseToDecimal, toPaise } from "./money";
+import { fromPaise, paiseToDecimal, toPaise, toRupees } from "./money";
 import { notifyOrderConfirmed } from "./whatsapp-notifications";
 
 export interface StockShortage {
@@ -221,7 +221,14 @@ export async function confirmPaidOrder(opts: {
     return { order: confirmed, applied: true };
   });
 
-  if (applied) void notifyOrder(order);
+  if (applied) {
+    void notifyOrder(order);
+    if (order.resellerCode) {
+      import("../routes/reseller").then(({ recordResellerCommission }) => {
+        void recordResellerCommission(order.id, toRupees(order.total), order.resellerCode!);
+      }).catch(console.error);
+    }
+  }
   return { order, applied };
 }
 

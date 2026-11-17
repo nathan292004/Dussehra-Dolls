@@ -29,7 +29,8 @@ import {
   shortageMessage,
   sweepExpiredCheckouts,
 } from "../lib/order-payments";
-import { fromPaise, paiseToDecimal, parsePaise, sumPaise, toPaise } from "../lib/money";
+import { fromPaise, paiseToDecimal, parsePaise, sumPaise, toPaise, toRupees } from "../lib/money";
+import { recordResellerCommission } from "./reseller";
 
 const router = Router();
 router.use(authMiddleware as any);
@@ -104,6 +105,7 @@ router.post("/create-order", async (req: AuthRequest, res) => {
       return res.status(400).json({ error: "Selected map location is invalid" });
     }
     const useWallet = req.body?.useWallet === true;
+    const resellerCode = typeof req.body?.resellerCode === "string" ? req.body.resellerCode.trim().toUpperCase() : null;
     const userId = req.userId!;
 
     // Give back abandoned checkouts first, so their stock and wallet money are available again.
@@ -180,6 +182,7 @@ router.post("/create-order", async (req: AuthRequest, res) => {
             paymentMethod: "wallet",
             status: "confirmed",
             paymentStatus: "paid",
+            resellerCode: resellerCode ?? null,
           })
           .returning();
         await sellStock(tx, orderItems);
@@ -203,6 +206,7 @@ router.post("/create-order", async (req: AuthRequest, res) => {
           paymentStatus: "pending",
           razorpayOrderId: rzpOrder!.id,
           stockReserved: true,
+          resellerCode: resellerCode ?? null,
         })
         .returning();
       // Freeze the items now. If anyone else took the last units in the meantime this fails
@@ -219,6 +223,9 @@ router.post("/create-order", async (req: AuthRequest, res) => {
 
     if (result.onlinePaise === 0) {
       void notifyOrder(result.order);
+      if (resellerCode) {
+        void recordResellerCommission(result.order.id, toRupees(result.order.total), resellerCode);
+      }
       return res.json({
         paidByWallet: true,
         orderId: result.order.id,

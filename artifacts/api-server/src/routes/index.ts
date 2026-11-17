@@ -13,6 +13,7 @@ import paymentRouter from "./payment";
 import razorpayWebhookRouter from "./razorpay-webhook";
 import whatsappRouter from "./whatsapp";
 import addressesRouter from "./addresses";
+import resellerRouter from "./reseller";
 
 const router: IRouter = Router();
 
@@ -31,5 +32,6 @@ router.use("/payment/razorpay-webhook", razorpayWebhookRouter);
 router.use("/payment", paymentRouter);
 router.use("/whatsapp", whatsappRouter);
 router.use("/addresses", addressesRouter);
+router.use("/reseller", resellerRouter);
 
 export default router;
