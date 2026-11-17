@@ -8,6 +8,7 @@ import router from "./routes";
 import path from "path";
 import { fileURLToPath } from "url";
 import { verifyMetaWhatsAppWebhook, receiveMetaWhatsAppWebhook } from "./routes/meta-whatsapp-webhook";
+import accountDeletionRouter from "./routes/account-deletion";
 
 const app: Express = express();
 
@@ -124,6 +125,7 @@ app.use("/api/uploads", (_req, res, next) => {
 }, express.static(uploadsDir));
 
 // ─── Routes ─────────────────────────────────────────────────
+app.use(accountDeletionRouter);
 app.use("/api", router);
 
 // ─── 404 handler ────────────────────────────────────────────
