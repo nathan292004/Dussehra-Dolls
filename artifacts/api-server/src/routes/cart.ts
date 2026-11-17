@@ -36,16 +36,16 @@ async function buildCartResponse(userId: string) {
 const isWholeNumber = (v: unknown, min: number, max: number): v is number =>
   Number.isInteger(v) && (v as number) >= min && (v as number) <= max;
 
-router.get("/", async (req: AuthRequest, res) => {
+router.get("/", async (req: AuthRequest, res, next) => {
   try {
     return res.json(await buildCartResponse(req.userId!));
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 
-router.post("/", async (req: AuthRequest, res) => {
+router.post("/", async (req: AuthRequest, res, next) => {
   try {
     const { productId, quantity } = req.body ?? {};
     if (!isWholeNumber(productId, 1, 2_147_483_647) || !isWholeNumber(quantity, 1, MAX_QUANTITY)) {
@@ -63,12 +63,12 @@ router.post("/", async (req: AuthRequest, res) => {
       });
     return res.json(await buildCartResponse(req.userId!));
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 
-router.put("/:productId", async (req: AuthRequest, res) => {
+router.put("/:productId", async (req: AuthRequest, res, next) => {
   try {
     const productId = parseInt(String(req.params.productId), 10);
     const { quantity } = req.body ?? {};
@@ -85,12 +85,12 @@ router.put("/:productId", async (req: AuthRequest, res) => {
     }
     return res.json(await buildCartResponse(req.userId!));
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 
-router.delete("/:productId", async (req: AuthRequest, res) => {
+router.delete("/:productId", async (req: AuthRequest, res, next) => {
   try {
     const productId = parseInt(String(req.params.productId), 10);
     if (!Number.isInteger(productId)) return res.status(400).json({ error: "Invalid product" });
@@ -98,8 +98,8 @@ router.delete("/:productId", async (req: AuthRequest, res) => {
       .where(and(eq(cartItemsTable.userId, req.userId!), eq(cartItemsTable.productId, productId)));
     return res.json(await buildCartResponse(req.userId!));
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 

@@ -7,6 +7,7 @@ import {
   walletsTable,
   transactionsTable,
   cartItemsTable,
+  customerAddressesTable,
   ordersTable,
   chitPlansTable,
   otpVerificationsTable,
@@ -175,7 +176,7 @@ function nameProblem(fname: unknown, lname: unknown): string | null {
 }
 
 // ─── Send OTP (registration or forgot password) ──────────────────────────────
-router.post("/send-otp", async (req, res) => {
+router.post("/send-otp", async (req, res, next) => {
   try {
     const phone = validPhone(req.body?.phone);
     if (!phone) return res.status(400).json({ error: "Invalid phone number format" });
@@ -238,13 +239,13 @@ router.post("/send-otp", async (req, res) => {
 
     return res.json({ success: true, message: `OTP sent to ${phone}` });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 
 // ─── Register ────────────────────────────────────────────────────────────────
-router.post("/register", async (req, res) => {
+router.post("/register", async (req, res, next) => {
   try {
     const { fname, lname, password, otp } = req.body ?? {};
     const phone = validPhone(req.body?.phone);
@@ -302,13 +303,13 @@ router.post("/register", async (req, res) => {
       throw err;
     }
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 
 // ─── Login (5 wrong passwords locks the account for 15 minutes) ──────────────
-router.post("/login", async (req, res) => {
+router.post("/login", async (req, res, next) => {
   try {
     const { password } = req.body ?? {};
     const phone = validPhone(req.body?.phone);
@@ -354,8 +355,8 @@ router.post("/login", async (req, res) => {
     }
     return res.json(sessionFor(user));
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 
@@ -363,7 +364,7 @@ router.post("/login", async (req, res) => {
 // After the OTP check, the old account row is soft-deleted and a NEW row with the same
 // phone and the new password is created (with a new user id). Everything the customer owns
 // (wallet, orders, chit plans, cart, transactions) is moved to the new row so nothing is lost.
-router.post("/reset-password", async (req, res) => {
+router.post("/reset-password", async (req, res, next) => {
   try {
     const { newPassword, otp } = req.body ?? {};
     const phone = validPhone(req.body?.phone);
@@ -449,27 +450,90 @@ router.post("/reset-password", async (req, res) => {
       throw err;
     }
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 
 // ─── Current user ────────────────────────────────────────────────────────────
-router.get("/me", authMiddleware as any, async (req: AuthRequest, res) => {
+router.get("/me", authMiddleware as any, async (req: AuthRequest, res, next) => {
   try {
     const [user] = await db.select().from(usersTable).where(eq(usersTable.userId, req.userId!)).limit(1);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     return res.json(publicUser(user));
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 
-// ─── Delete account (soft delete) ────────────────────────────────────────────
+// ─── Delete account (soft delete & PII scrubbing) ───────────────────────────
 // Needs the password. Refused while money or open orders are tied to the account.
-// The row stays (is_deleted) and the phone number can register again as a fresh account.
-router.delete("/account", authMiddleware as any, async (req: AuthRequest, res) => {
+// The row stays (is_deleted) with personal data scrubbed, and the phone number can register again as a fresh account.
+export async function executeAccountDeletion(userId: string) {
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.userId, userId)).limit(1);
+  if (!user) return { success: false, status: 401, error: "Unauthorized" };
+
+  const reasons: string[] = [];
+  const [wallet] = await db.select().from(walletsTable).where(eq(walletsTable.userId, user.userId)).limit(1);
+  if (wallet && toPaise(wallet.balance) > 0) {
+    reasons.push("You still have money in your wallet. Please use it or contact support before deleting your account.");
+  }
+  if (wallet && toPaise(wallet.chitLockedBalance) > 0) {
+    reasons.push("You have savings locked in a chit plan. It can be deleted after the plan completes.");
+  }
+  const plans = await db.select().from(chitPlansTable).where(eq(chitPlansTable.userId, user.userId));
+  // Plans with nothing paid (still under review, or approved but unpaid) are simply closed.
+  const unpaidPlanIds = plans
+    .filter((p) => p.status === "active" && !p.isRejected && toPaise(p.amountPaid) === 0)
+    .map((p) => p.id);
+  const openOrders = await db
+    .select({ id: ordersTable.id, status: ordersTable.status, walletAmount: ordersTable.walletAmount })
+    .from(ordersTable)
+    .where(
+      and(
+        eq(ordersTable.userId, user.userId),
+        inArray(ordersTable.status, ["pending", "confirmed", "processing", "shipped"]),
+      ),
+    );
+  if (openOrders.some((o) => o.status !== "pending" || toPaise(o.walletAmount) > 0)) {
+    reasons.push("You have an order that is not delivered yet. Please wait until it is delivered.");
+  }
+  if (reasons.length) {
+    return { success: false, status: 409, error: reasons[0], reasons, code: "ACCOUNT_HAS_OPEN_ITEMS" };
+  }
+
+  await db.transaction(async (tx) => {
+    // Soft-delete user record and scrub personally identifiable information (PII)
+    await tx
+      .update(usersTable)
+      .set({
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletionReason: "account_deleted",
+        fname: "Deleted",
+        lname: "User",
+        address: null,
+        resellerCode: null,
+      })
+      .where(eq(usersTable.userId, user.userId));
+
+    // Scrub saved delivery addresses and shopping cart items for privacy compliance
+    await tx.delete(customerAddressesTable).where(eq(customerAddressesTable.userId, user.userId));
+    await tx.delete(cartItemsTable).where(eq(cartItemsTable.userId, user.userId));
+
+    if (unpaidPlanIds.length) {
+      await tx
+        .update(chitPlansTable)
+        .set({ status: "cancelled" })
+        .where(inArray(chitPlansTable.id, unpaidPlanIds));
+    }
+  });
+
+  return { success: true };
+}
+
+router.delete("/account", authMiddleware as any, async (req: AuthRequest, res, next) => {
   try {
     const { password } = req.body ?? {};
     if (typeof password !== "string" || !password) {
@@ -497,51 +561,70 @@ router.delete("/account", authMiddleware as any, async (req: AuthRequest, res) =
       return res.status(403).json({ error: "Incorrect password" });
     }
 
-    const reasons: string[] = [];
-    const [wallet] = await db.select().from(walletsTable).where(eq(walletsTable.userId, user.userId)).limit(1);
-    if (wallet && toPaise(wallet.balance) > 0) {
-      reasons.push("You still have money in your wallet. Please use it or contact support before deleting your account.");
-    }
-    if (wallet && toPaise(wallet.chitLockedBalance) > 0) {
-      reasons.push("You have savings locked in a chit plan. It can be deleted after the plan completes.");
-    }
-    const plans = await db.select().from(chitPlansTable).where(eq(chitPlansTable.userId, user.userId));
-    // Plans with nothing paid (still under review, or approved but unpaid) are simply closed.
-    const unpaidPlanIds = plans
-      .filter((p) => p.status === "active" && !p.isRejected && toPaise(p.amountPaid) === 0)
-      .map((p) => p.id);
-    const openOrders = await db
-      .select({ id: ordersTable.id, status: ordersTable.status, walletAmount: ordersTable.walletAmount })
-      .from(ordersTable)
-      .where(
-        and(
-          eq(ordersTable.userId, user.userId),
-          inArray(ordersTable.status, ["pending", "confirmed", "processing", "shipped"]),
-        ),
-      );
-    if (openOrders.some((o) => o.status !== "pending" || toPaise(o.walletAmount) > 0)) {
-      reasons.push("You have an order that is not delivered yet. Please wait until it is delivered.");
-    }
-    if (reasons.length) {
-      return res.status(409).json({ error: reasons[0], reasons, code: "ACCOUNT_HAS_OPEN_ITEMS" });
+    const result = await executeAccountDeletion(user.userId);
+    if (!result.success) {
+      return res.status(result.status || 400).json({
+        error: result.error,
+        reasons: (result as any).reasons,
+        code: (result as any).code,
+      });
     }
 
-    await db.transaction(async (tx) => {
-      await tx
-        .update(usersTable)
-        .set({ isDeleted: true, deletedAt: new Date(), deletionReason: "account_deleted" })
-        .where(eq(usersTable.userId, user.userId));
-      if (unpaidPlanIds.length) {
-        await tx
-          .update(chitPlansTable)
-          .set({ status: "cancelled" })
-          .where(inArray(chitPlansTable.id, unpaidPlanIds));
-      }
-    });
     return res.json({ success: true });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
+  }
+});
+
+// Public web deletion endpoint (for Google Play compliance)
+router.post("/web-delete-account", async (req, res, next) => {
+  try {
+    const { phone, password } = req.body ?? {};
+    if (!phone || typeof phone !== "string" || !password || typeof password !== "string") {
+      return res.status(400).json({ error: "Phone number and password are required" });
+    }
+    const normalized = normalizePhone(phone);
+    const [user] = await db
+      .select()
+      .from(usersTable)
+      .where(and(eq(usersTable.phone, normalized), eq(usersTable.isDeleted, false)))
+      .limit(1);
+
+    if (!user) {
+      return res.status(404).json({ error: "No active account found for this phone number" });
+    }
+    const now = new Date();
+    if (isLocked(user.lockedUntil, now)) {
+      return res.status(429).json({ error: lockMessage(user.lockedUntil!, now), code: "ACCOUNT_LOCKED" });
+    }
+    if (!(await bcrypt.compare(password, user.passwordHash))) {
+      const [updated] = await db
+        .update(usersTable)
+        .set({ failedLoginAttempts: sql`${usersTable.failedLoginAttempts} + 1` })
+        .where(eq(usersTable.userId, user.userId))
+        .returning({ attempts: usersTable.failedLoginAttempts });
+      if (updated && updated.attempts >= MAX_FAILED_LOGINS) {
+        const lockedUntil = new Date(Date.now() + LOCK_MINUTES * 60_000);
+        await db.update(usersTable).set({ lockedUntil }).where(eq(usersTable.userId, user.userId));
+        return res.status(429).json({ error: lockMessage(lockedUntil), code: "ACCOUNT_LOCKED" });
+      }
+      return res.status(403).json({ error: "Incorrect password" });
+    }
+
+    const result = await executeAccountDeletion(user.userId);
+    if (!result.success) {
+      return res.status(result.status || 400).json({
+        error: result.error,
+        reasons: (result as any).reasons,
+        code: (result as any).code,
+      });
+    }
+
+    return res.json({ success: true, message: "Account and associated personal data successfully deleted." });
+  } catch (err) {
+    next(err);
+    return;
   }
 });
 

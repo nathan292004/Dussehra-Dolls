@@ -56,7 +56,9 @@ export default function CheckoutScreen() {
         const data = await res.json();
         setWallet({ balance: data.balance ?? 0, lockedBalance: data.lockedBalance ?? 0 });
       }
-    } catch { /* checkout still works without the wallet */ }
+    } catch (err) {
+      console.warn("[Checkout] could not load wallet balance:", err);
+    }
   }, [token]);
 
   const loadAddresses = useCallback(async () => {
@@ -72,7 +74,9 @@ export default function CheckoutScreen() {
         setAddress(preferred.formattedAddress);
         setPin({ formattedAddress: preferred.formattedAddress, latitude: preferred.latitude, longitude: preferred.longitude });
       }
-    } catch { /* checkout still works without saved addresses */ }
+    } catch (err) {
+      console.warn("[Checkout] could not load saved addresses:", err);
+    }
   }, [token]);
 
   useFocusEffect(useCallback(() => { void loadWallet(); void loadAddresses(); }, [loadWallet, loadAddresses]));
