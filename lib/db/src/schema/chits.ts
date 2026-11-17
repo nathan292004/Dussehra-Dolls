@@ -26,6 +26,9 @@ export const chitPlansTable = pgTable("chit_plans", {
   reviewedBy: integer("reviewed_by").references(() => adminUsersTable.id),
   reviewedAt: timestamp("reviewed_at"),
   completedAt: timestamp("completed_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  cancellationReason: text("cancellation_reason"),
+  cancelledBy: text("cancelled_by"), // "customer" | "admin"
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   check("chit_plans_not_approved_and_rejected", sql`NOT (${t.isApproved} AND ${t.isRejected})`),
