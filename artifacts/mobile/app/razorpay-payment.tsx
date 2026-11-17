@@ -316,7 +316,8 @@ function NativeRazorpayPayment({ params }: { params: PaymentParams }) {
           params,
         );
       }
-    } catch {
+    } catch (err) {
+      console.warn("[Payment] WebView message parse failed:", err);
       router.back();
     }
   };

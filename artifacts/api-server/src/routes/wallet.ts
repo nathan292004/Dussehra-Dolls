@@ -10,7 +10,7 @@ router.use(authMiddleware as any);
 
 // Wallet money only ever changes through verified payments (top-up via Razorpay, chit
 // completion, wallet purchases and refunds), never through a plain "add funds" request.
-router.get("/", async (req: AuthRequest, res) => {
+router.get("/", async (req: AuthRequest, res, next) => {
   try {
     let [wallet] = await db.select().from(walletsTable).where(eq(walletsTable.userId, req.userId!)).limit(1);
     if (!wallet) {
@@ -36,11 +36,9 @@ router.get("/", async (req: AuthRequest, res) => {
       transactions: transactions.map(t => ({ ...t, amount: toRupees(t.amount) })),
     });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
-
-router.post("/", (_req, res) => res.status(410).json({ error: "Use a verified payment method" }));
 
 export default router;

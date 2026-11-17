@@ -15,6 +15,13 @@
       "when": 1792501523312,
       "tag": "0001_bitter_absorbing_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794900367259,
+      "tag": "0002_superb_natasha_romanoff",
+      "breakpoints": true
     }
   ]
 }

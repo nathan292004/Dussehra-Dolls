@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,18 +28,32 @@ export default function OrdersScreen() {
   const { token, user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  useEffect(() => {
-    (async () => {
-      if (!token) { setIsLoading(false); return; }
-      try {
-        const res = await fetch(`${getApiBase()}/orders`, { headers: { Authorization: `Bearer ${token}` } });
-        if (res.ok) setOrders(await res.json());
-      } catch { /* ignore */ } finally { setIsLoading(false); }
-    })();
+  const fetchOrders = useCallback(async () => {
+    if (!token) { setIsLoading(false); return; }
+    setIsLoading(true);
+    setLoadError("");
+    try {
+      const res = await fetch(`${getApiBase()}/orders`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        setOrders(await res.json());
+      } else {
+        setLoadError("Could not load your orders. Tap to retry.");
+      }
+    } catch (err) {
+      console.warn("[Orders] fetch failed:", err);
+      setLoadError("Could not connect to server. Tap to retry.");
+    } finally {
+      setIsLoading(false);
+    }
   }, [token]);
+
+  useEffect(() => {
+    void fetchOrders();
+  }, [fetchOrders]);
 
   if (isLoading) return <View style={[styles.loader, { paddingTop: topPad }]}><ActivityIndicator size="large" color={Colors.light.tint} /></View>;
 
@@ -57,13 +71,20 @@ export default function OrdersScreen() {
         keyExtractor={item => item.id.toString()}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: bottomPad + 20, gap: 12 }}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name="bag-outline" size={64} color={Colors.light.border} />
-            <Text style={styles.emptyTitle}>No orders yet</Text>
-            <Pressable style={styles.shopBtn} onPress={() => router.push("/(tabs)")}>
-              <Text style={styles.shopBtnText}>Start Shopping</Text>
+          loadError ? (
+            <Pressable style={styles.empty} onPress={fetchOrders}>
+              <Ionicons name="alert-circle-outline" size={56} color={Colors.light.error} />
+              <Text style={[styles.emptyTitle, { color: Colors.light.error }]}>{loadError}</Text>
             </Pressable>
-          </View>
+          ) : (
+            <View style={styles.empty}>
+              <Ionicons name="bag-outline" size={64} color={Colors.light.border} />
+              <Text style={styles.emptyTitle}>No orders yet</Text>
+              <Pressable style={styles.shopBtn} onPress={() => router.push("/(tabs)")}>
+                <Text style={styles.shopBtnText}>Start Shopping</Text>
+              </Pressable>
+            </View>
+          )
         }
         renderItem={({ item }) => (
           <Pressable

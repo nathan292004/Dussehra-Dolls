@@ -182,11 +182,10 @@ export default function ProfileScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Delete your account?</Text>
             <Text style={styles.modalText}>
-              Your account will be closed and you will be signed out. Your order history is kept for our records.
-              You can register again later with the same number as a new account.
+              Your account will be permanently closed and your personal details (name, delivery addresses, and cart) will be deleted.
             </Text>
             <Text style={styles.modalText}>
-              Accounts with wallet money, savings in a chit plan or an undelivered order cannot be deleted yet.
+              Order and payment transaction records are retained strictly for statutory tax and accounting compliance. Accounts with active wallet money, ongoing chit savings, or undelivered orders cannot be deleted until completed.
             </Text>
             <TextInput
               style={styles.modalInput}

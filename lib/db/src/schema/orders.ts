@@ -24,6 +24,7 @@ export const ordersTable = pgTable("orders", {
   addressLatitude: doublePrecision("address_latitude"),
   addressLongitude: doublePrecision("address_longitude"),
   paymentMethod: text("payment_method"),
+  resellerCode: text("reseller_code"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("orders_user_idx").on(t.userId, t.createdAt),

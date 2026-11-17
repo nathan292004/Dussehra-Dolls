@@ -86,15 +86,30 @@ How to change the database safely (and how to do it on a live server) is explain
 
 ## Running the automated tests
 
-The end-to-end suite needs a throwaway PostgreSQL database whose name contains `test`
-(it empties every table in it):
+### 1. Fast Unit Tests
+No database required. Validates money arithmetic, chit business rules, user ID format, lockout timing, and sensitive PII phone masking:
 
 ```powershell
-$env:DATABASE_URL = 'postgresql://USER:PASSWORD@127.0.0.1:5433/dolldime_test'
+pnpm --filter @workspace/api-server run test:unit
+```
+
+### 2. End-to-End Test Suite
+The end-to-end suite requires a throwaway PostgreSQL database on port 5433 whose name contains `test` (it resets test tables):
+
+```powershell
+$env:DATABASE_URL = 'postgresql://dolldime:4a1e6fb8eb1dc559382047ca872e4a525715260c1e8abbeb@127.0.0.1:5433/dolldime_test'
 pnpm --filter @workspace/db run migrate
 $env:TEST_DATABASE_URL = $env:DATABASE_URL
 pnpm --filter @workspace/api-server run test:e2e
 ```
+
+## Google Play Account Deletion & Privacy Compliance
+
+To comply with Google Play's User Data policy:
+- **Public Web Deletion Portal:** Available at `http://localhost:3001/delete-account` (and `/account-deletion`). Users can request or execute account deletion directly in the browser without installing the app.
+- **Web API Endpoint:** `POST /api/auth/web-delete-account` allows authentication and deletion for users outside the mobile app.
+- **PII Scrubbing:** When an account is soft-deleted, personal details are anonymized (`fname = 'Deleted'`, `lname = 'User'`, `address = null`, `resellerCode = null`), saved addresses in `customer_addresses` are purged, and cart items in `cart_items` are removed.
+- **Statutory Retention Disclosure:** Explains to users that while personal profile data is scrubbed, completed financial orders and invoices are retained for mandatory legal and tax compliance.
 
 ## Background jobs
 
@@ -173,7 +188,12 @@ The API production build now emits an ESM `index.mjs` bundle and passed a local 
 
 ## Validation completed
 
-- All workspace TypeScript checks pass.
+- All workspace TypeScript checks pass (`pnpm run typecheck` across all 5 packages with 0 errors).
+- Unit test suite (`pnpm --filter @workspace/api-server run test:unit`) passes 100%.
+- End-to-end integration test suite (`pnpm --filter @workspace/api-server run test:e2e`) passes 100% across all 13 sections.
+- Google Play account deletion verified via web portal (`/delete-account`), API (`/api/auth/web-delete-account`), and mobile app modal.
+- Provider logging verified to redact sensitive PII (phone numbers).
+- Centralized structured error logging with `traceId` verified across all routes.
 - Admin production build passes (existing bundle-size and sourcemap warnings remain).
 - Expo dependency compatibility check passes.
 - Customer app exports successfully for web and Android (Hermes bundle).

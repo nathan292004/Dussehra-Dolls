@@ -84,6 +84,12 @@ export async function sendSms(to: string, body: string) {
 
 export type WhatsAppResult = { ok: true; sid?: string } | { ok: false; error: string };
 
+export function maskPhone(phone: string): string {
+  const clean = phone.replace(/^whatsapp:/, "");
+  if (clean.length <= 4) return "****";
+  return clean.slice(0, clean.length - 4).replace(/[0-9]/g, "*") + clean.slice(-4);
+}
+
 /** Sends a WhatsApp message and reports what happened (never throws). */
 export async function trySendWhatsApp(to: string, body: string): Promise<WhatsAppResult> {
   const rawFrom = process.env.TWILIO_WHATSAPP_FROM || "+14155238886";
@@ -95,9 +101,9 @@ export async function trySendWhatsApp(to: string, body: string): Promise<WhatsAp
   const toWa = "whatsapp:" + actualTo.replace(/^whatsapp:/, "");
 
   if (testOverride) {
-    console.log(`[Twilio] WhatsApp TEST MODE: redirecting ${to} to ${toWa}`);
+    console.log(`[Twilio] WhatsApp TEST MODE: redirecting ${maskPhone(to)} to ${maskPhone(toWa)}`);
   } else {
-    console.log(`[Twilio] Sending WhatsApp to ${toWa}`);
+    console.log(`[Twilio] Sending WhatsApp to ${maskPhone(toWa)}`);
   }
 
   try {
