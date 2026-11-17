@@ -2,10 +2,11 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import {
   productsTable, ordersTable, usersTable, walletsTable,
-  chitPlansTable, vendorsTable,
+  chitPlansTable, vendorsTable, resellerCommissionsTable,
 } from "@workspace/db/schema";
 import { and, eq, count, sum, desc, sql, lte } from "drizzle-orm";
 import { paiseToDecimal, parsePaise, toRupees } from "../lib/money";
+import { parsePaginationParams, formatListResponse } from "../lib/pagination";
 import adminChitsRouter from "./admin-chits";
 import adminOpsRouter from "./admin-ops";
 import multer from "multer";
@@ -131,13 +132,22 @@ router.get("/stats", async (_req, res) => {
 });
 
 // ─── Products ─────────────────────────────────────────────────────────────────
-router.get("/products", async (_req, res) => {
+router.get("/products", async (req, res, next) => {
   try {
-    const products = await db.select().from(productsTable).orderBy(desc(productsTable.createdAt));
-    return res.json(products.map(formatProduct));
+    const pagination = parsePaginationParams(req.query);
+    const [{ total }] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(productsTable);
+
+    let query = db.select().from(productsTable).orderBy(desc(productsTable.createdAt));
+    if (pagination.isPaginatedRequest) {
+      query = query.limit(pagination.limit).offset(pagination.offset) as any;
+    }
+    const products = await query;
+    return formatListResponse(res, products.map(formatProduct), total, pagination);
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 
@@ -327,9 +337,14 @@ router.delete("/vendors/:id", async (req, res) => {
 });
 
 // ─── Orders ─────────────────────────────────────────────────────────────────
-router.get("/orders", async (_req, res) => {
+router.get("/orders", async (req, res, next) => {
   try {
-    const orders = await db
+    const pagination = parsePaginationParams(req.query);
+    const [{ total }] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(ordersTable);
+
+    let query = db
       .select({
         id: ordersTable.id,
         userId: ordersTable.userId,
@@ -350,16 +365,23 @@ router.get("/orders", async (_req, res) => {
       .leftJoin(usersTable, eq(ordersTable.userId, usersTable.userId))
       .orderBy(desc(ordersTable.createdAt));
 
-    return res.json(orders.map(o => ({
+    if (pagination.isPaginatedRequest) {
+      query = query.limit(pagination.limit).offset(pagination.offset) as any;
+    }
+
+    const orders = await query;
+    const formatted = orders.map(o => ({
       ...o,
       total: toRupees(o.total),
       walletAmount: toRupees(o.walletAmount),
       customerName: o.customerName ?? "Unknown",
       customerPhone: o.customerPhone ?? "",
-    })));
+    }));
+
+    return formatListResponse(res, formatted, total, pagination);
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 
@@ -440,6 +462,86 @@ router.get("/wallets", async (_req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Resellers Management ───────────────────────────────────────────────────
+router.get("/resellers", async (_req, res, next) => {
+  try {
+    const resellers = await db
+      .select({
+        userId: usersTable.userId,
+        index: usersTable.index,
+        fname: usersTable.fname,
+        lname: usersTable.lname,
+        phone: usersTable.phone,
+        resellerCode: usersTable.resellerCode,
+        isActive: usersTable.isActive,
+        registeredAt: usersTable.registeredAt,
+      })
+      .from(usersTable)
+      .where(and(eq(usersTable.isReseller, true), eq(usersTable.isDeleted, false)))
+      .orderBy(desc(usersTable.registeredAt));
+
+    const enriched = await Promise.all(
+      resellers.map(async (r) => {
+        const [{ totalOrders, totalSales, totalCommissions }] = await db
+          .select({
+            totalOrders: sql<number>`count(*)::int`,
+            totalSales: sql<string>`coalesce(sum(${resellerCommissionsTable.orderTotal}), 0)::text`,
+            totalCommissions: sql<string>`coalesce(sum(${resellerCommissionsTable.commissionAmount}), 0)::text`,
+          })
+          .from(resellerCommissionsTable)
+          .where(eq(resellerCommissionsTable.resellerId, r.userId));
+
+        return {
+          ...r,
+          name: [r.fname, r.lname].filter(Boolean).join(" ") || "Reseller",
+          totalOrders,
+          totalSales: toRupees(totalSales),
+          totalCommissions: toRupees(totalCommissions),
+        };
+      }),
+    );
+
+    return res.json(enriched);
+  } catch (err) {
+    next(err);
+    return;
+  }
+});
+
+router.post("/users/:userId/reseller", async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const { isReseller, resellerCode } = req.body ?? {};
+
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.userId, userId)).limit(1);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const newCode =
+      typeof resellerCode === "string" && resellerCode.trim()
+        ? resellerCode.trim().toUpperCase()
+        : user.resellerCode || `DD${user.index}ADMIN`;
+
+    const [updated] = await db
+      .update(usersTable)
+      .set({
+        isReseller: isReseller !== false,
+        resellerCode: isReseller === false ? user.resellerCode : newCode,
+      })
+      .where(eq(usersTable.userId, userId))
+      .returning();
+
+    return res.json({
+      success: true,
+      userId: updated.userId,
+      isReseller: updated.isReseller,
+      resellerCode: updated.resellerCode,
+    });
+  } catch (err) {
+    next(err);
+    return;
   }
 });
 
