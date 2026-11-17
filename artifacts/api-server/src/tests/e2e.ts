@@ -53,6 +53,7 @@ const { withNewUserId, generateUserId, isUserId } = await import("../lib/user-id
 const { walletShareFor } = await import("../routes/payment");
 const { toPaise, parsePaise, paiseToDecimal, sumPaise, fromPaise } = await import("../lib/money");
 const { sendChitReminders } = await import("../lib/chit-reminder-scheduler");
+const { monthsDueFor } = await import("../lib/chit-rules");
 
 // ---------- fake Razorpay ----------
 const rzOrders = new Map<string, any>();
@@ -98,14 +99,17 @@ const tick = (ms = 350) => new Promise((r) => setTimeout(r, ms));
 import http from "node:http";
 const agent = new http.Agent({ keepAlive: true, maxSockets: 6 });
 function rawRequest(method: string, path: string, headers: Record<string, string>, payload?: string) {
-  return new Promise<{ status: number; text: string }>((resolve, reject) => {
+  return new Promise<{ status: number; text: string; headers: http.IncomingHttpHeaders; buffer: Buffer }>((resolve, reject) => {
     const u = new URL(base + path);
     const req = http.request(
       { host: u.hostname, port: u.port, path: u.pathname + u.search, method, headers, agent },
       (res) => {
-        let text = "";
-        res.on("data", (c) => (text += c));
-        res.on("end", () => resolve({ status: res.statusCode!, text }));
+        const chunks: Buffer[] = [];
+        res.on("data", (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+        res.on("end", () => {
+          const buffer = Buffer.concat(chunks);
+          resolve({ status: res.statusCode!, text: buffer.toString("utf8"), headers: res.headers, buffer });
+        });
       },
     );
     req.on("error", reject);
@@ -123,7 +127,7 @@ async function api(method: string, path: string, body?: unknown, token?: string,
   }, payload);
   let json: any = null;
   try { json = JSON.parse(r.text); } catch { /* none */ }
-  return { status: r.status, body: json };
+  return { status: r.status, body: json, headers: r.headers, rawText: r.text, buffer: r.buffer };
 }
 const q = async (sql: string, params: any[] = []) => (await pool.query(sql, params)).rows;
 const lastOtp = (phone: string) => {
@@ -516,8 +520,8 @@ ok("deletion blocked by wallet money, locked chit money, undelivered order, held
 const enrDel = await api("POST", "/chits/enroll-custom", { chits: 2 }, del.token); assert.equal(enrDel.status, 201);
 x = await api("DELETE", "/auth/account", { password: "leavepass" }, del.token);
 assert.equal(x.status, 200, JSON.stringify(x.body));
-const gone = (await q("select is_deleted, deletion_reason, deleted_at from users where user_id=$1", [del.id]))[0];
-assert.equal(gone.is_deleted, true); assert.equal(gone.deletion_reason, "account_deleted"); assert.ok(gone.deleted_at);
+const gone = (await q("select is_deleted, deletion_reason, deleted_at, fname, lname from users where user_id=$1", [del.id]))[0];
+assert.equal(gone.is_deleted, true); assert.equal(gone.deletion_reason, "account_deleted"); assert.equal(gone.fname, "Deleted"); assert.equal(gone.lname, "User"); assert.ok(gone.deleted_at);
 assert.equal((await q("select status from chit_plans where id=$1", [enrDel.body.id]))[0].status, "cancelled");
 assert.equal((await q("select count(*)::int c from orders where user_id=$1", [del.id]))[0].c, 2);
 ok("account soft-deleted; row, orders and the (unpaid) chit enrolment kept");
@@ -539,6 +543,21 @@ for (let i = 0; i < 4; i++) assert.equal((await api("DELETE", "/auth/account", {
 assert.equal((await api("DELETE", "/auth/account", { password: "no5" }, del2.token)).status, 429);
 assert.equal((await api("DELETE", "/auth/account", { password: "delpass22" }, del2.token)).status, 429);
 ok("wrong passwords on delete count toward the same 5-attempt lock");
+
+// Public web deletion endpoint & public page (Google Play requirement)
+const webDel = await signup(phoneN(), "WebLeaver", "webleavepass");
+const pageRes = await rawRequest("GET", "/../delete-account", {});
+assert.equal(pageRes.status, 200);
+assert.match(pageRes.text, /Account & Data Deletion/);
+
+const badWebDel = await api("POST", "/auth/web-delete-account", { phone: webDel.tenDigits, password: "wrong" });
+assert.equal(badWebDel.status, 403);
+const goodWebDel = await api("POST", "/auth/web-delete-account", { phone: webDel.tenDigits, password: "webleavepass" });
+assert.equal(goodWebDel.status, 200);
+const webGone = (await q("select is_deleted, fname from users where user_id=$1", [webDel.id]))[0];
+assert.equal(webGone.is_deleted, true);
+assert.equal(webGone.fname, "Deleted");
+ok("public web deletion endpoint, PII scrubbing and policy page verified");
 
 // =====================================================================================
 section("admin login + products (C8 validation)");
@@ -1038,9 +1057,11 @@ section("H1 chit plan approval flow");
   ok("under-review plan: cannot be paid (API and payment service both refuse), not reminded");
 
   // admin sees it
+  const mDue1 = monthsDueFor(plan1.cycleStartYear);
+  const expDue1 = plan1.monthlyAmount * mDue1;
   let queue = await adminList();
   const q1 = queue.plans.find((p3: any) => p3.id === plan1.id);
-  assert.ok(q1); assert.equal(q1.customer.userId, c1.id); assert.equal(q1.customer.phone, c1.phone); assert.equal(q1.amountDueOnApproval, 2000);
+  assert.ok(q1); assert.equal(q1.customer.userId, c1.id); assert.equal(q1.customer.phone, c1.phone); assert.equal(q1.amountDueOnApproval, expDue1);
   assert.ok(queue.counts.under_review >= 1);
   assert.equal((await api("GET", "/admin/chit-plans", undefined, c1.token)).status, 401);
   assert.equal((await api("GET", "/admin/chit-plans")).status, 401);
@@ -1072,10 +1093,10 @@ section("H1 chit plan approval flow");
   assert.equal(both.find((b) => b.status === 409)!.body.code, "ALREADY_REVIEWED");
   const approved = both.find((b) => b.status === 200)!.body;
   assert.equal(approved.isApproved, true); assert.equal(approved.isRejected, false); assert.equal(approved.reviewStatus, "active");
-  assert.equal(approved.outstanding, 2000);
+  assert.equal(approved.outstanding, expDue1);
   const row1b = (await q("select * from chit_plans where id=$1", [plan1.id]))[0];
   assert.equal(row1b.is_approved, true); assert.equal(row1b.is_rejected, false); assert.equal(row1b.reviewed_by, adm.id); assert.ok(row1b.reviewed_at);
-  await tick(); assert.ok(waMessages(c1.phone).some((m) => m.includes("Chit Plan Approved") && m.includes("2,000")));
+  await tick(); assert.ok(waMessages(c1.phone).some((m) => m.includes("Chit Plan Approved") && m.includes(expDue1.toLocaleString("en-IN"))));
   assert.equal(waMessages(c1.phone).filter((m) => m.includes("Chit Plan Approved")).length, 1, "customer told once");
   let rej = await api("POST", `/admin/chit-plans/${plan1.id}/reject`, { reason: "late" }, adminToken); assert.equal(rej.status, 409);
   ok("approve: two admins at once, one wins; flags updated; reviewer + time recorded; customer told once; cannot be rejected afterwards");
@@ -1090,17 +1111,17 @@ section("H1 chit plan approval flow");
 
   // customer can now pay (partial then rest), as before
   pr1 = await api("POST", "/payment/create-chit-payment", { chitPlanId: plan1.id }, c1.token);
-  assert.equal(pr1.status, 200, JSON.stringify(pr1.body)); assert.equal(pr1.body.amount, 200000);
+  assert.equal(pr1.status, 200, JSON.stringify(pr1.body)); assert.equal(pr1.body.amount, expDue1 * 100);
   pay = gatewayPay(pr1.body.razorpayOrderId, 50000);
   x = await api("POST", "/payment/verify-chit-payment", pay, c1.token);
-  assert.equal(x.status, 200); assert.equal(x.body.partial, true); assert.equal(x.body.outstanding, 1500);
+  assert.equal(x.status, 200); assert.equal(x.body.partial, true); assert.equal(x.body.outstanding, expDue1 - 500);
   await tick(); assert.ok(waMessages(c1.phone).some((m) => m.includes("Not Completed in Full")));
   pr1 = await api("POST", "/payment/create-chit-payment", { chitPlanId: plan1.id }, c1.token);
-  assert.equal(pr1.body.amount, 150000);
+  assert.equal(pr1.body.amount, (expDue1 - 500) * 100);
   pay = gatewayPay(pr1.body.razorpayOrderId);
   x = await api("POST", "/payment/verify-chit-payment", pay, c1.token);
   assert.equal(x.body.partial, false); assert.equal(x.body.outstanding, 0);
-  assert.deepEqual(await wallet(c1.id), { b: "0.00", l: "2000.00" });
+  assert.deepEqual(await wallet(c1.id), { b: "0.00", l: `${expDue1}.00` });
   assert.equal((await api("POST", "/payment/create-chit-payment", { chitPlanId: plan1.id }, c1.token)).status, 400);
   assert.equal((await api("POST", "/payment/create-chit-payment", { chitPlanId: plan1.id }, other.token)).status, 404);
   ok("after approval: partial payment flagged, rest paid, money locked in the wallet; strangers refused");
@@ -1265,11 +1286,12 @@ section("H5 reminders and notification tracking");
   // ---------- the admin dashboard
   await q("delete from chit_reminder_log"); await q("delete from notification_log");
   await q("update chit_plans set status='cancelled' where status='active'");
+  const mDueD = monthsDueFor(2026);
   const dOwes = await signup(phoneN(), "DashOwes"), dBehind = await signup(phoneN(), "DashBehind"), dPaid = await signup(phoneN(), "DashPaid"), dPart = await signup(phoneN(), "DashPartial"), dNew = await signup(phoneN(), "DashNew");
-  const pl1 = await mkPlan(dOwes.id, 2);                                   // Oct: owes 1,000 (1 month)
+  const pl1 = await mkPlan(dOwes.id, 2);                                   // owes mDueD * 1000
   const pl2 = await mkPlan(dBehind.id, 4, { cycle: 2025, paid: "6000" });  // 2025 plan: 22,000 due, paid 6,000 => 8 months behind
-  const pl3 = await mkPlan(dPaid.id, 2, { paid: "1000" });                 // paid up
-  const pl4 = await mkPlan(dPart.id, 2, { paid: "400" });                  // part paid: owes 600
+  const pl3 = await mkPlan(dPaid.id, 2, { paid: String(mDueD * 1000) });   // paid up
+  const pl4 = await mkPlan(dPart.id, 2, { paid: String(mDueD * 1000 - 600) }); // part paid: owes 600
   const pl5 = await mkPlan(dNew.id, 1, { approved: false });               // waiting for approval
   const nowD = new Date();
   await q("insert into chit_reminder_log (chit_plan_id, kind, period_key, status, attempts, sent_at) values ($1,'day4',$2,'sent',1,now())", [pl1.id, `${nowD.getUTCFullYear()}-${String(nowD.getUTCMonth() + 1).padStart(2, "0")}`]);
@@ -1285,16 +1307,16 @@ section("H5 reminders and notification tracking");
   assert.equal(D.payments.activePlans, 4); assert.equal(D.payments.paidUp, 1);
   assert.equal(D.payments.late, afterTenth ? 3 : 1);
   assert.equal(D.payments.pending, afterTenth ? 0 : 2);
-  assert.equal(D.payments.multiMonthPending, 1);
+  assert.equal(D.payments.multiMonthPending, mDueD >= 2 ? 2 : 1);
   assert.equal(D.payments.partiallyPaid, 1);
   assert.equal(D.payments.neverPaid, 1);                             // dOwes
   assert.equal(D.approvals.pending, 1);
   assert.deepEqual(D.pendingPayments.map((p3: any) => p3.customer.name.split(" ")[0]), ["DashBehind", "DashOwes", "DashPartial"]);
   assert.equal(D.pendingPayments[0].monthsPending, 8); assert.equal(D.pendingPayments[0].outstanding, 16000);
-  assert.deepEqual(D.multiMonthPending.map((p3: any) => p3.customer.name.split(" ")[0]), ["DashBehind"]);
+  assert.deepEqual(D.multiMonthPending.map((p3: any) => p3.customer.name.split(" ")[0]), mDueD >= 2 ? ["DashBehind", "DashOwes"] : ["DashBehind"]);
   assert.deepEqual(D.latePayments.map((p3: any) => p3.customer.name.split(" ")[0]), afterTenth ? ["DashBehind", "DashOwes", "DashPartial"] : ["DashBehind"]);
   const owesRow = D.pendingPayments.find((p3: any) => p3.chitPlanId === pl1.id);
-  assert.equal(owesRow.outstanding, 1000); assert.equal(owesRow.remindersSent, 1); assert.ok(owesRow.lastReminderAt);
+  assert.equal(owesRow.outstanding, mDueD * 1000); assert.equal(owesRow.remindersSent, 1); assert.ok(owesRow.lastReminderAt);
   assert.equal(D.reminders.sentThisMonth, 1); assert.equal(D.reminders.failedThisMonth, 0);
   assert.equal(D.reminders.byKind[0].kind, "day4"); assert.equal(D.reminders.byKind[0].sentThisMonth, 1);
   assert.equal(D.reminders.owingNeverReminded, 2);
@@ -1302,7 +1324,7 @@ section("H5 reminders and notification tracking");
   assert.ok(D.notifications.sentLast24h >= 1); assert.equal(D.notifications.failedLast30d, 1);
   assert.ok(D.notifications.byKind.some((k: any) => k.kind === "chit_reminder_day4" && k.sent24h === 1));
   assert.equal(D.recentFailures.length, 1); assert.equal(D.recentFailures[0].kind, "order_confirmed"); assert.match(D.recentFailures[0].error, /21608/);
-  assert.equal(D.payments.outstandingTotal, 16000 + 1000 + 600);
+  assert.equal(D.payments.outstandingTotal, 16000 + mDueD * 1000 + 600);
   assert.equal(D.payments.monthlyRunRate, 1000 + 2000 + 1000 + 1000);
   assert.ok(D.payments.collectionRate >= 0 && D.payments.collectionRate <= 100);
   assert.equal(D.checkouts.unitsHeld, heldBefore);
@@ -1315,6 +1337,186 @@ section("H5 reminders and notification tracking");
   assert.equal((await api("GET", "/admin/ops", undefined, dOwes.token)).status, 401);
   assert.equal((await api("GET", "/admin/ops")).status, 401);
   ok("admin dashboard: late / pending / multi-month lists, reminder + notification counts, failures, approvals, collections, stock, wallets");
+}
+
+// =====================================================================================
+section("REQ1 chit cancellation");
+{
+  const cu = await signup(phoneN(), "ChitCanceller");
+  const enr = await api("POST", "/chits/enroll-custom", { chits: 1 }, cu.token);
+  assert.equal(enr.status, 201);
+  const planId = enr.body.id;
+
+  // Attempt cancel before approval
+  let canRes = await api("POST", `/chits/${planId}/cancel`, { reason: "Changed my mind" }, cu.token);
+  assert.equal(canRes.status, 200);
+  assert.equal(canRes.body.success, true);
+  assert.equal(canRes.body.plan.reviewStatus, "cancelled");
+
+  // Attempting to cancel again should fail with 400
+  canRes = await api("POST", `/chits/${planId}/cancel`, { reason: "Again" }, cu.token);
+  assert.equal(canRes.status, 400);
+
+  // Active plan with paid installment -> cancellation triggers refund
+  const cu2 = await signup(phoneN(), "ChitCancellerWithRefund");
+  const enr2 = await api("POST", "/chits/enroll-custom", { chits: 2 }, cu2.token);
+  assert.equal(enr2.status, 201);
+  const planId2 = enr2.body.id;
+
+  // Admin approves plan2
+  const appRes = await api("POST", `/admin/chit-plans/${planId2}/approve`, {}, adminToken);
+  assert.equal(appRes.status, 200);
+
+  // Simulate payment of 2000 into locked balance
+  await setWallet(cu2.id, "0.00", "2000.00");
+  await q("update chit_plans set amount_paid='2000.00', status='active' where id=$1", [planId2]);
+
+  // Cancel by customer
+  const canRes2 = await api("POST", `/chits/${planId2}/cancel`, { reason: "Need emergency funds" }, cu2.token);
+  assert.equal(canRes2.status, 200);
+  assert.equal(canRes2.body.refundedAmount, 2000);
+
+  // Wallet verified: chit locked balance should decrease by 2000, main balance increased by 2000
+  const w = await wallet(cu2.id);
+  assert.equal(w.b, "2000.00");
+  assert.equal(w.l, "0.00");
+
+  // Admin cancel check
+  const cu3 = await signup(phoneN(), "AdminChitCanceller");
+  const enr3 = await api("POST", "/chits/enroll-custom", { chits: 1 }, cu3.token);
+  const planId3 = enr3.body.id;
+  await api("POST", `/admin/chit-plans/${planId3}/approve`, {}, adminToken);
+  const adminCan = await api("POST", `/admin/chit-plans/${planId3}/cancel`, { reason: "Admin cancelled for policy violation" }, adminToken);
+  assert.equal(adminCan.status, 200);
+  assert.equal(adminCan.body.success, true);
+  assert.equal(adminCan.body.plan.cancelledBy, "admin");
+
+  ok("chit cancellation works for customer and admin, refunds locked funds, and rejects double-cancellation");
+}
+
+// =====================================================================================
+section("REQ4 document generation (PDF)");
+{
+  const cuDoc = await signup(phoneN(), "DocTester");
+  const pDoc = await makeProduct("Doc Doll", "50.00", 10);
+  await setWallet(cuDoc.id, "100.00");
+  await fillCart(cuDoc.token, [[pDoc, 1]]);
+
+  // Checkout order
+  const ordRes = await api("POST", "/payment/create-order", {
+    address: { street: "123 Main St", city: "Chennai", state: "TN", postalCode: "600001", country: "India" },
+    useWallet: true,
+  }, cuDoc.token);
+  assert.equal(ordRes.status, 201);
+  const orderId = ordRes.body.order.id;
+
+  // Fetch invoice PDF
+  const invRes = await rawRequest("GET", `/orders/${orderId}/invoice`, { Authorization: `Bearer ${cuDoc.token}` });
+  assert.equal(invRes.status, 200);
+  assert.match(String(invRes.headers["content-type"]), /pdf/);
+  assert.equal(invRes.buffer.subarray(0, 4).toString(), "%PDF");
+
+  // Fetch chit statement PDF
+  const enrDoc = await api("POST", "/chits/enroll-custom", { chits: 1 }, cuDoc.token);
+  const docPlanId = enrDoc.body.id;
+  const stmtRes = await rawRequest("GET", `/chits/${docPlanId}/statement`, { Authorization: `Bearer ${cuDoc.token}` });
+  assert.equal(stmtRes.status, 200);
+  assert.match(String(stmtRes.headers["content-type"]), /pdf/);
+  assert.equal(stmtRes.buffer.subarray(0, 4).toString(), "%PDF");
+
+  ok("invoice and chit statement generate valid downloadable PDF documents");
+}
+
+// =====================================================================================
+section("REQ5 pagination & optimization");
+{
+  // Test paginated products
+  const pRes = await api("GET", "/products?page=1&limit=2");
+  assert.equal(pRes.status, 200);
+  assert.ok(pRes.body.pagination);
+  assert.equal(pRes.body.pagination.page, 1);
+  assert.equal(pRes.body.pagination.limit, 2);
+  assert.ok(Array.isArray(pRes.body.data));
+  assert.ok(pRes.body.data.length <= 2);
+
+  // Test unpaginated products backward-compatibility
+  const pUnpag = await api("GET", "/products");
+  assert.equal(pUnpag.status, 200);
+  assert.ok(Array.isArray(pUnpag.body));
+  assert.ok(pUnpag.headers["x-total-count"] !== undefined);
+
+  // Test admin orders pagination
+  const admOrd = await api("GET", "/admin/orders?page=1&limit=3", undefined, adminToken);
+  assert.equal(admOrd.status, 200);
+  assert.ok(admOrd.body.pagination);
+  assert.equal(admOrd.body.pagination.page, 1);
+  assert.equal(admOrd.body.pagination.limit, 3);
+
+  ok("pagination returns structured metadata when requested and backwards-compatible arrays with headers otherwise");
+}
+
+// =====================================================================================
+section("REQ9 reseller functionality");
+{
+  const resUser = await signup(phoneN(), "ResellerPartner");
+  // Register reseller
+  const regRes = await api("POST", "/reseller/register", { customCode: "TESTPARTNER" }, resUser.token);
+  assert.equal(regRes.status, 200);
+  assert.equal(regRes.body.success, true);
+  assert.equal(regRes.body.resellerCode, "TESTPARTNER");
+
+  // Validate referral code
+  const valRes = await api("GET", "/reseller/validate/TESTPARTNER");
+  assert.equal(valRes.status, 200);
+  assert.equal(valRes.body.valid, true);
+  assert.equal(valRes.body.resellerCode, "TESTPARTNER");
+
+  // Invalid referral code
+  const invVal = await api("GET", "/reseller/validate/NONEXISTENT");
+  assert.equal(invVal.status, 404);
+  assert.equal(invVal.body.valid, false);
+
+  // Buyer purchases with referral code
+  const buyer = await signup(phoneN(), "BuyerUser");
+  const rProd = await makeProduct("Reseller Doll", "100.00", 10);
+  await setWallet(buyer.id, "100.00");
+  await fillCart(buyer.token, [[rProd, 1]]);
+
+  const bOrd = await api("POST", "/payment/create-order", {
+    address: { street: "456 Market", city: "Mumbai", state: "MH", postalCode: "400001", country: "India" },
+    useWallet: true,
+    resellerCode: "TESTPARTNER",
+  }, buyer.token);
+  assert.equal(bOrd.status, 201);
+
+  // Reseller commission check: 5% of 100.00 is 5.00
+  const commRows = await q("select * from reseller_commissions where reseller_id=$1", [resUser.id]);
+  assert.equal(commRows.length, 1);
+  assert.equal(commRows[0].commission_amount, "5.00");
+
+  // Reseller wallet credited with commission
+  const resW = await wallet(resUser.id);
+  assert.equal(resW.b, "5.00");
+
+  // Reseller dashboard
+  const dashRes = await api("GET", "/reseller/dashboard", undefined, resUser.token);
+  assert.equal(dashRes.status, 200);
+  assert.equal(dashRes.body.isReseller, true);
+  assert.equal(dashRes.body.stats.totalOrders, 1);
+  assert.equal(dashRes.body.stats.totalCommissions, "5.00");
+
+  // Admin reseller management
+  const admResellers = await api("GET", "/admin/resellers", undefined, adminToken);
+  assert.equal(admResellers.status, 200);
+  assert.ok(admResellers.body.some((r: any) => r.resellerCode === "TESTPARTNER"));
+
+  // Admin sets custom reseller
+  const admSet = await api("POST", `/admin/users/${buyer.id}/reseller`, { resellerCode: "BUYER-PARTNER" }, adminToken);
+  assert.equal(admSet.status, 200);
+  assert.equal(admSet.body.isReseller, true);
+  assert.equal(admSet.body.resellerCode, "BUYER-PARTNER");
+
+  ok("reseller registration, code validation, automated commission calculation and wallet credit, dashboard and admin controls verified");
 }
 
 // =====================================================================================
