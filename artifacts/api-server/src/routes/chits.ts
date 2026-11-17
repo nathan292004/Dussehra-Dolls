@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { chitPlansTable, usersTable } from "@workspace/db/schema";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { chitPlansTable, usersTable, transactionsTable } from "@workspace/db/schema";
+import { and, desc, eq, ne, ilike } from "drizzle-orm";
 import { authMiddleware, AuthRequest } from "../middlewares/auth";
 import {
   CHIT_VALUE,
@@ -17,6 +17,8 @@ import { describeChitPlan } from "../lib/chit-view";
 import { paiseToDecimal } from "../lib/money";
 import { uniqueViolationConstraint } from "../lib/lockout";
 import { notifyChitPlanSubmitted } from "../lib/whatsapp-notifications";
+import { cancelChitPlan } from "../lib/chit-cancellation";
+import { generateChitStatementPdf } from "../lib/document-generator";
 
 const router = Router();
 
@@ -34,7 +36,7 @@ router.get("/cycle", (_req, res) => {
 });
 
 // The customer's own plans, newest first: under review, rejected, active and completed.
-router.get("/my", authMiddleware as any, async (req: AuthRequest, res) => {
+router.get("/my", authMiddleware as any, async (req: AuthRequest, res, next) => {
   try {
     const plans = await db
       .select()
@@ -43,15 +45,15 @@ router.get("/my", authMiddleware as any, async (req: AuthRequest, res) => {
       .orderBy(desc(chitPlansTable.createdAt), desc(chitPlansTable.id));
     return res.json(plans.map((p) => describeChitPlan(p)));
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 
 // Submit a plan for review. It cannot be paid for until an admin approves it.
 // One plan per customer per plan year (under review or approved): the database enforces this,
 // so if two requests arrive together one is created and the other is told to retry.
-router.post("/enroll-custom", authMiddleware as any, async (req: AuthRequest, res) => {
+router.post("/enroll-custom", authMiddleware as any, async (req: AuthRequest, res, next) => {
   try {
     const { chits } = req.body ?? {};
     if (!isValidChitCount(chits)) {
@@ -101,8 +103,86 @@ router.post("/enroll-custom", authMiddleware as any, async (req: AuthRequest, re
 
     return res.status(201).json(describeChitPlan(plan));
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
+  }
+});
+
+// Customer cancellation of a chit plan
+router.post("/:id/cancel", authMiddleware as any, async (req: AuthRequest, res, next) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: "Invalid chit plan ID" });
+    }
+    const { reason } = req.body ?? {};
+    const result = await cancelChitPlan({
+      chitPlanId: id,
+      userId: req.userId!,
+      reason: typeof reason === "string" ? reason.trim() : undefined,
+      cancelledBy: "customer",
+    });
+
+    if (!result.success) {
+      return res.status(result.status).json({ error: result.error });
+    }
+
+    return res.json({
+      success: true,
+      message:
+        result.refundedAmount > 0
+          ? `Chit plan cancelled successfully. ₹${result.refundedAmount.toLocaleString("en-IN")} has been refunded to your wallet.`
+          : "Chit plan cancelled successfully.",
+      refundedAmount: result.refundedAmount,
+      plan: result.plan,
+    });
+  } catch (err) {
+    next(err);
+    return;
+  }
+});
+
+// Download official chit statement / membership receipt PDF
+router.get("/:id/statement", authMiddleware as any, async (req: AuthRequest, res, next) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isInteger(id)) return res.status(404).json({ error: "Chit plan not found" });
+
+    const [plan] = await db
+      .select()
+      .from(chitPlansTable)
+      .where(and(eq(chitPlansTable.id, id), eq(chitPlansTable.userId, req.userId!)))
+      .limit(1);
+    if (!plan) return res.status(404).json({ error: "Chit plan not found" });
+
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.userId, req.userId!)).limit(1);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const transactions = await db
+      .select()
+      .from(transactionsTable)
+      .where(and(eq(transactionsTable.userId, req.userId!), ilike(transactionsTable.description, `%${plan.name}%`)))
+      .orderBy(desc(transactionsTable.createdAt));
+
+    const described = describeChitPlan(plan);
+    const pdfBuffer = await generateChitStatementPdf(
+      described,
+      {
+        userId: user.userId,
+        fname: user.fname,
+        lname: user.lname,
+        phone: user.phone,
+      },
+      transactions,
+    );
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="chit-statement-${plan.id}.pdf"`);
+    res.setHeader("Content-Length", pdfBuffer.length);
+    return res.end(pdfBuffer);
+  } catch (err) {
+    next(err);
+    return;
   }
 });
 

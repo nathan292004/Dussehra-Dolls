@@ -7,6 +7,7 @@ import { describeChitPlan, chitPlanDue, chitReviewStatus } from "../lib/chit-vie
 import { cycleHasEnded } from "../lib/chit-rules";
 import { loadTrackedChitPlans } from "../lib/chit-tracking";
 import { notifyChitPlanApproved, notifyChitPlanRejected } from "../lib/whatsapp-notifications";
+import { cancelChitPlan } from "../lib/chit-cancellation";
 
 // Mounted at /api/admin/chit-plans (admin login required, see routes/index.ts).
 const router = Router();
@@ -14,8 +15,8 @@ const router = Router();
 const customerName = (u: { fname: string; lname: string | null }) => [u.fname, u.lname].filter(Boolean).join(" ");
 
 // ─── Review queue ────────────────────────────────────────────────────────────
-// ?status=under_review (default) | approved | rejected | all
-router.get("/", async (req, res) => {
+// ?status=under_review (default) | approved | rejected | cancelled | all
+router.get("/", async (req, res, next) => {
   try {
     const status = typeof req.query.status === "string" ? req.query.status : "under_review";
     const rows = await db
@@ -25,46 +26,53 @@ router.get("/", async (req, res) => {
       .orderBy(desc(chitPlansTable.createdAt))
       .limit(500);
 
-    const all = rows
-      .filter(({ plan }) => plan.status !== "cancelled")
-      .map(({ plan, user }) => {
-        const view = describeChitPlan(plan);
-        return {
-          ...view,
-          // What the customer will have to pay straight away once approved (October up to this month).
-          amountDueOnApproval: view.reviewStatus === "under_review" ? chitPlanDue(plan).outstanding : null,
-          cycleEnded: cycleHasEnded(plan.cycleStartYear),
-          customer: {
-            userId: user.userId,
-            index: user.index,
-            name: customerName(user),
-            phone: user.phone,
-            registeredAt: user.registeredAt,
-            isReseller: user.isReseller,
-          },
-        };
-      });
+    const enrichPlan = ({ plan, user }: (typeof rows)[number]) => {
+      const view = describeChitPlan(plan);
+      return {
+        ...view,
+        // What the customer will have to pay straight away once approved (October up to this month).
+        amountDueOnApproval: view.reviewStatus === "under_review" ? chitPlanDue(plan).outstanding : null,
+        cycleEnded: cycleHasEnded(plan.cycleStartYear),
+        customer: {
+          userId: user.userId,
+          index: user.index,
+          name: customerName(user),
+          phone: user.phone,
+          registeredAt: user.registeredAt,
+          isReseller: user.isReseller,
+        },
+      };
+    };
+
+    const notCancelled = rows.filter(({ plan }) => plan.status !== "cancelled").map(enrichPlan);
+    const cancelled = rows.filter(({ plan }) => plan.status === "cancelled").map(enrichPlan);
 
     const counts = {
-      under_review: all.filter((p) => p.reviewStatus === "under_review").length,
-      approved: all.filter((p) => p.reviewStatus === "active" || p.reviewStatus === "completed").length,
-      rejected: all.filter((p) => p.reviewStatus === "rejected").length,
-      all: all.length,
+      under_review: notCancelled.filter((p) => p.reviewStatus === "under_review").length,
+      approved: notCancelled.filter((p) => p.reviewStatus === "active" || p.reviewStatus === "completed").length,
+      rejected: notCancelled.filter((p) => p.reviewStatus === "rejected").length,
+      cancelled: cancelled.length,
+      all: notCancelled.length,
     };
-    const plans = all.filter((p) =>
-      status === "all" ? true
-      : status === "approved" ? p.reviewStatus === "active" || p.reviewStatus === "completed"
-      : p.reviewStatus === status,
-    );
+
+    const plans =
+      status === "cancelled"
+        ? cancelled
+        : notCancelled.filter((p) =>
+            status === "all" ? true
+            : status === "approved" ? p.reviewStatus === "active" || p.reviewStatus === "completed"
+            : p.reviewStatus === status,
+          );
+
     return res.json({ counts, plans });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 
 // ─── Approved plans with their payment status (replaces the old "subscriptions" list) ─────
-router.get("/subscriptions", async (_req, res) => {
+router.get("/subscriptions", async (_req, res, next) => {
   try {
     const plans = await loadTrackedChitPlans();
     const stats = {
@@ -76,8 +84,8 @@ router.get("/subscriptions", async (_req, res) => {
     };
     return res.json({ stats, plans });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 
@@ -89,7 +97,7 @@ async function loadOwner(userId: string) {
   return user;
 }
 
-router.post("/:id/approve", async (req: AdminRequest, res) => {
+router.post("/:id/approve", async (req: AdminRequest, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return res.status(404).json({ error: "Chit plan not found" });
@@ -124,12 +132,12 @@ router.post("/:id/approve", async (req: AdminRequest, res) => {
     }
     return res.json(describeChitPlan(updated));
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
   }
 });
 
-router.post("/:id/reject", async (req: AdminRequest, res) => {
+router.post("/:id/reject", async (req: AdminRequest, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return res.status(404).json({ error: "Chit plan not found" });
@@ -170,8 +178,41 @@ router.post("/:id/reject", async (req: AdminRequest, res) => {
     }
     return res.json(describeChitPlan(updated));
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    return;
+  }
+});
+
+// ─── Admin Cancel Chit Plan ────────────────────────────────────────────────
+router.post("/:id/cancel", async (req: AdminRequest, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(404).json({ error: "Chit plan not found" });
+
+    const { reason } = req.body ?? {};
+    const result = await cancelChitPlan({
+      chitPlanId: id,
+      adminId: req.adminId,
+      reason: typeof reason === "string" ? reason.trim() : "Cancelled by administrator",
+      cancelledBy: "admin",
+    });
+
+    if (!result.success) {
+      return res.status(result.status).json({ error: result.error });
+    }
+
+    return res.json({
+      success: true,
+      message:
+        result.refundedAmount > 0
+          ? `Chit plan cancelled. ₹${result.refundedAmount.toLocaleString("en-IN")} was refunded to customer wallet.`
+          : "Chit plan cancelled successfully.",
+      refundedAmount: result.refundedAmount,
+      plan: result.plan,
+    });
+  } catch (err) {
+    next(err);
+    return;
   }
 });
 
